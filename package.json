@@ -1,0 +1,27 @@
+{
+  "name": "pegboard",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "format": "prettier --write .",
+    "test": "uvu test -i data",
+    "test:watch": "npx watchlist --eager . -- npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pdubroy/pegboard.git"
+  },
+  "author": "Patrick Dubroy <pdubroy@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pdubroy/pegboard/issues"
+  },
+  "homepage": "https://github.com/pdubroy/pegboard#readme",
+  "devDependencies": {
+    "prettier": "^3.0.2",
+    "uvu": "^0.5.6",
+    "watchlist": "^0.3.1"
+  }
+}
