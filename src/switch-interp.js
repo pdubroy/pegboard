@@ -1,28 +1,37 @@
+function assert(cond, msg) {
+  if (!cond) {
+    throw new Error(msg);
+  }
+}
+
 const instr = {
   // Rule applications have the low bit set.
   // Remaining bits encode the index of the rule to apply.
   app(idx) {
-    if (idx <= 127) {
+    if (idx < 127) {
       return (idx << 1) + 1;
     }
-    if (idx >= 256) {
-      throw new Error("Not supported");
-    }
-    // Rule index between [128, 256) takes two bytes.
+    assert(idx < 256, "Rule index must be less than 256");
+
+    // Rule application in the range [127, 256) takes two bytes.
     return [0xff, idx];
   },
   term: 2,
-  beginChoice: 4,
-  endChoiceArm: 6,
-  beginRep: 8,
-  beginNot: 10,
-  end: 12,
+  range: 4,
+  beginChoice: 6,
+  endChoiceArm: 8,
+  beginRep: 10,
+  beginNot: 12,
+  end: 14,
 };
 
 function compile(rules) {
-  const ruleIndices = new Map(Object.keys(rules).map((k, i) => [k, i]));
-  const ruleBodies = Object.values(rules).map((body) => {
-    return new Uint8Array(body.toBytecode(ruleIndices));
+  const ruleIndexByName = new Map(Object.keys(rules).map((k, i) => [k, i]));
+
+  // Return an object
+  return Object.values(rules).map((body) => {
+    const bytes = body.toBytecode(ruleIndexByName);
+    return new Uint8Array(bytes.flat(Infinity));
   });
 }
 
@@ -39,7 +48,10 @@ export class RuleApplication {
     this.ruleName = ruleName;
   }
 
-  toBytecode() {}
+  toBytecode(ruleIndices) {
+    const idx = ruleIndices.get(this.ruleName);
+    return [instr.app(idx)];
+  }
 }
 
 export class Terminal {
@@ -47,7 +59,10 @@ export class Terminal {
     this.str = str;
   }
 
-  toBytecode() {}
+  toBytecode() {
+    const utf8Bytes = new TextEncoder().encode(this.str);
+    return [instr.term, utf8Bytes];
+  }
 }
 
 export class Range {
@@ -56,7 +71,13 @@ export class Range {
     this.end = end;
   }
 
-  toBytecode() {}
+  toBytecode() {
+    const startCp = this.start.codePointAt(0);
+    const endCp = this.end.codePointAt(0);
+    assert(startCp <= 0xffff, `range start too high: ${startCp}`);
+    assert(endCp <= 0xffff, `range end too high: ${endCp}`);
+    return [instr.range, startCp, endCp];
+  }
 }
 
 export class Choice {
@@ -64,7 +85,16 @@ export class Choice {
     this.exps = exps;
   }
 
-  toBytecode() {}
+  toBytecode(ruleIndices) {
+    return [
+      instr.beginChoice,
+      ...this.exps.flatMap((exp) => [
+        exp.toBytecode(ruleIndices),
+        instr.endChoiceArm,
+      ]),
+      instr.end,
+    ];
+  }
 }
 
 export class Sequence {
@@ -72,7 +102,9 @@ export class Sequence {
     this.exps = exps;
   }
 
-  toBytecode() {}
+  toBytecode(ruleIndices) {
+    return this.exps.map((e) => e.toBytecode(ruleIndices));
+  }
 }
 
 export class Not {
@@ -80,7 +112,9 @@ export class Not {
     this.exp = exp;
   }
 
-  toBytecode() {}
+  toBytecode(ruleIndices) {
+    return [instr.beginNot, this.exp.toBytecode(ruleIndices), instr.end];
+  }
 }
 
 export class Repetition {
@@ -88,5 +122,7 @@ export class Repetition {
     this.exp = exp;
   }
 
-  toBytecode() {}
+  toBytecode(ruleIndices) {
+    return [instr.beginRep, this.exp.toBytecode(ruleIndices), instr.end];
+  }
 }
