@@ -25,22 +25,54 @@ const instr = {
   end: 14,
 };
 
-function compile(rules) {
-  const ruleIndexByName = new Map(Object.keys(rules).map((k, i) => [k, i]));
-
-  // Return an object
-  return Object.values(rules).map((body) => {
-    const bytes = body.toBytecode(ruleIndexByName);
-    return new Uint8Array(bytes.flat(Infinity));
-  });
-}
-
 export class Matcher {
   constructor(rules) {
-    const code = compile(rules);
+    const ruleIndexByName = new Map(Object.keys(rules).map((k, i) => [k, i]));
+
+    this.compiledRules = [];
+    for (const ruleName in rules) {
+      const bytes = rules[ruleName].toBytecode(ruleIndexByName);
+      const idx = ruleIndexByName.get(ruleName);
+      this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
+    }
+    this.startRuleIndex = ruleIndexByName.get("start");
+    console.log(this.compiledRules, this.startRuleIndex);
   }
 
-  match(input) {}
+  match(input) {
+    let pos = 0;
+    let pc = 0;
+    let ruleStack = [];
+    let currRule = this.compiledRules[this.startRuleIndex];
+
+    const tree = [];
+
+    while (pc < currRule.length) {
+      let op = currRule[pc++];
+      switch (op) {
+        case instr.range:
+          const startCp = currRule[pc++];
+          const endCp = currRule[pc++];
+          const nextCp = input.codePointAt(pos);
+          if (startCp <= nextCp && nextCp <= endCp) {
+            pos++;
+            tree.push(String.fromCodePoint(nextCp));
+          } else {
+            tree.push(null);
+          }
+          break;
+        /*
+        default:
+          if (op & 1) {
+            const ruleIdx = op >> 1;
+            ruleStack.push(currRule);
+          }
+          break;
+          */
+      }
+    }
+    return tree[0];
+  }
 }
 
 export class RuleApplication {
