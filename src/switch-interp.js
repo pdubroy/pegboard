@@ -67,6 +67,7 @@ export class Matcher {
             const origPos = pos;
             const len = currRule[pc++];
             while (pos - origPos < len) {
+              // TODO: This is not quite right, need to decode the utf-8
               if (currRule[pc++] !== input.codePointAt(pos++)) {
                 pos = origPos;
                 failed = true;
@@ -93,7 +94,7 @@ export class Matcher {
       }
       [currRule, pc] = ruleStack.pop();
     }
-    return tree[0];
+    return pos === input.length ? tree[0] : undefined;
   }
 }
 

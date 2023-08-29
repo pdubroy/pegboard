@@ -25,7 +25,7 @@ test("rule application", () => {
     any: range("\u0000", "a"),
   });
   assert.ok(g.match("a"));
-  assert.not.ok(g.match("b"));
+  assert.is(g.match("b"), undefined);
 
   const g2 = new Matcher({
     start: app("next"),
@@ -33,7 +33,21 @@ test("rule application", () => {
     any: range("\u0000", "a"),
   });
   assert.ok(g2.match("a"));
-  assert.not.ok(g2.match("b"));
+  assert.is(g2.match("b"), undefined);
+});
+
+test("terminal", () => {
+  const g = new Matcher({
+    start: _("foo"),
+  });
+  assert.ok(g.match("foo"));
+  assert.is(g.match("fob"), undefined);
+
+  const g2 = new Matcher({
+    start: _(""),
+  });
+  assert.equal(g2.match(""), "");
+  assert.is(g2.match("xyz"), undefined);
 });
 
 test("terminal", () => {
