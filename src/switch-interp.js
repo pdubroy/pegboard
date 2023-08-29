@@ -36,7 +36,6 @@ export class Matcher {
       this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
     }
     this.startRuleIndex = ruleIndexByName.get("start");
-    console.log(this.compiledRules, this.startRuleIndex);
   }
 
   match(input) {
@@ -47,29 +46,52 @@ export class Matcher {
 
     const tree = [];
 
-    while (pc < currRule.length) {
-      let op = currRule[pc++];
-      switch (op) {
-        case instr.range:
-          const startCp = currRule[pc++];
-          const endCp = currRule[pc++];
-          const nextCp = input.codePointAt(pos);
-          if (startCp <= nextCp && nextCp <= endCp) {
-            pos++;
-            tree.push(String.fromCodePoint(nextCp));
-          } else {
-            tree.push(null);
-          }
-          break;
-        /*
-        default:
-          if (op & 1) {
-            const ruleIdx = op >> 1;
-            ruleStack.push(currRule);
-          }
-          break;
-          */
+    while (true) {
+      let failed;
+      while (pc < currRule.length) {
+        failed = false;
+        let op = currRule[pc++];
+        switch (op) {
+          case instr.range:
+            const startCp = currRule[pc++];
+            const endCp = currRule[pc++];
+            const nextCp = input.codePointAt(pos);
+            if (startCp <= nextCp && nextCp <= endCp) {
+              pos++;
+              tree.push(String.fromCodePoint(nextCp));
+            } else {
+              failed = true;
+            }
+            break;
+          case instr.term:
+            const origPos = pos;
+            const len = currRule[pc++];
+            while (pos - origPos < len) {
+              if (currRule[pc++] !== input.codePointAt(pos++)) {
+                pos = origPos;
+                failed = true;
+                break;
+              }
+            }
+            if (!failed) {
+              tree.push(input.slice(origPos, pos));
+            }
+            break;
+          default:
+            if (op & 1) {
+              const ruleIdx = op >> 1;
+              // When pushing, advance pc over the rule application.
+              ruleStack.push([currRule, pc + 2]);
+              currRule = this.compiledRules[ruleIdx];
+              pc = 0;
+            }
+            break;
+        }
       }
+      if (ruleStack.length === 0) {
+        break;
+      }
+      [currRule, pc] = ruleStack.pop();
     }
     return tree[0];
   }
@@ -93,7 +115,8 @@ export class Terminal {
 
   toBytecode() {
     const utf8Bytes = new TextEncoder().encode(this.str);
-    return [instr.term, utf8Bytes];
+    assert(utf8Bytes.length <= 256, "max terminal length is 256");
+    return [instr.term, utf8Bytes.length, ...utf8Bytes];
   }
 }
 
