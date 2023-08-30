@@ -36,11 +36,12 @@ export class Matcher {
       this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
     }
     this.startRuleIndex = ruleIndexByName.get("start");
+    this.textDecoder = new TextDecoder();
   }
 
   match(input) {
     let pos = 0;
-    let pc = 0;
+    let ip = 0;
     let ruleStack = [];
     let currRule = this.compiledRules[this.startRuleIndex];
 
@@ -48,13 +49,13 @@ export class Matcher {
 
     while (true) {
       let failed;
-      while (pc < currRule.length) {
+      while (ip < currRule.length) {
         failed = false;
-        let op = currRule[pc++];
+        let op = currRule[ip++];
         switch (op) {
           case instr.range:
-            const startCp = currRule[pc++];
-            const endCp = currRule[pc++];
+            const startCp = currRule[ip++];
+            const endCp = currRule[ip++];
             const nextCp = input.codePointAt(pos);
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
@@ -65,26 +66,28 @@ export class Matcher {
             break;
           case instr.term:
             const origPos = pos;
-            const len = currRule[pc++];
-            while (pos - origPos < len) {
-              // TODO: This is not quite right, need to decode the utf-8
-              if (currRule[pc++] !== input.codePointAt(pos++)) {
+            const len = currRule[ip++];
+            const str = this.textDecoder.decode(currRule.slice(ip, ip + len));
+            ip += len;
+
+            for (let i = 0; i < len; i++) {
+              if (input[pos++] !== str[i]) {
                 pos = origPos;
                 failed = true;
                 break;
               }
             }
             if (!failed) {
-              tree.push(input.slice(origPos, pos));
+              tree.push(str);
             }
             break;
           default:
             if (op & 1) {
               const ruleIdx = op >> 1;
-              // When pushing, advance pc over the rule application.
-              ruleStack.push([currRule, pc + 2]);
+              // When pushing, advance ip over the rule application.
+              ruleStack.push([currRule, ip + 2]);
               currRule = this.compiledRules[ruleIdx];
-              pc = 0;
+              ip = 0;
             }
             break;
         }
@@ -92,7 +95,7 @@ export class Matcher {
       if (ruleStack.length === 0) {
         break;
       }
-      [currRule, pc] = ruleStack.pop();
+      [currRule, ip] = ruleStack.pop();
     }
     return pos === input.length ? tree[0] : undefined;
   }
