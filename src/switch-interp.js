@@ -48,12 +48,12 @@ export class Matcher {
     const tree = [];
 
     while (true) {
-      let failed;
-      while (ip < currRule.length) {
-        failed = false;
+      let failed = false;
+      while (!failed && ip < currRule.length) {
         let op = currRule[ip++];
         switch (op) {
           case instr.range:
+            // TODO: This is not correct, need UTF-8 decoding here.
             const startCp = currRule[ip++];
             const endCp = currRule[ip++];
             const nextCp = input.codePointAt(pos);
@@ -61,6 +61,7 @@ export class Matcher {
               pos++;
               tree.push(String.fromCodePoint(nextCp));
             } else {
+              console.log("range failed");
               failed = true;
             }
             break;
@@ -85,7 +86,7 @@ export class Matcher {
             if (op & 1) {
               const ruleIdx = op >> 1;
               // When pushing, advance ip over the rule application.
-              ruleStack.push([currRule, ip + 2]);
+              ruleStack.push([currRule, ip]);
               currRule = this.compiledRules[ruleIdx];
               ip = 0;
             }
