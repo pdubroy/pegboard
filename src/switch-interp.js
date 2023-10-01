@@ -31,19 +31,16 @@ export class Matcher {
 
   match(input) {
     let pos = 0;
-    let ip = 0;
-    let ruleStack = [];
-    let currRule = this.compiledRules[this.startRuleIndex];
 
-    // Note that since the first rule application is implicit, the return
-    // stack always has one element more than `ruleStack`.
-    const returnStack = [[]];
+    const returnStack = [];
+    let ruleStack = [];
+    let currRule = [instr.app, this.startRuleIndex];
+    let ip = 0;
 
     while (true) {
       while (ip < currRule.length) {
-        let nesting = 0;
-        let op = currRule[ip++];
-        switch (op) {
+        let ret = false;
+        switch (currRule[ip++]) {
           case instr.app:
             // TODO: Use LEB128 encoding to support >256 rules.
             const ruleIdx = currRule[ip++];
@@ -58,7 +55,7 @@ export class Matcher {
             const str = this.textDecoder.decode(currRule.slice(ip, ip + len));
             ip += len;
 
-            let ret = str;
+            ret = str;
             for (let i = 0; i < len; i++) {
               if (input[pos++] !== str[i]) {
                 pos = origPos;
@@ -66,7 +63,6 @@ export class Matcher {
                 break;
               }
             }
-            returnStack.push(ret);
             break;
           case instr.range:
             // TODO: This is not correct, need UTF-8 decoding here.
@@ -75,27 +71,24 @@ export class Matcher {
             const nextCp = input.codePointAt(pos);
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
-              returnStack.push(String.fromCodePoint(nextCp));
-            } else {
-              returnStack.push(false);
+              ret = String.fromCodePoint(nextCp);
             }
             break;
-          case beginChoice:
-          case endChoiceArm:
-          case beginRep:
-          case beginNot:
-          case end:
+          case instr.beginChoice:
+          case instr.endChoiceArm:
+          case instr.beginRep:
+          case instr.beginNot:
+          case instr.end:
         }
-        const childResult = returnStack.pop();
-        if (childResult === false) {
+        if (ret === false) {
           returnStack.pop();
           returnStack.push(false);
 
           // Advance to the end of the current sequence
-          let origNesting = nesting;
-          loop: while ((op = currRule[ip++]) !== undefined) {
+          let nesting = 0;
+          loop: while (ip < currRule.length) {
             // prettier-ignore
-            switch (op) {
+            switch (currRule[ip++]) {
               case instr.app: ip += 1; break;
               case instr.terminal: ip += currRule[ip++]; break;
               case instr.range: ip += 2; break;
@@ -103,14 +96,14 @@ export class Matcher {
               case instr.beginRep:
               case instr.beginNot: ++nesting; break;
               case instr.endChoiceArm: break;
-              case instr.end: if (nesting-- === origNesting) break loop;
+              case instr.end: if (nesting-- === 0) break loop;
             }
           }
         } else {
-          returnStack.at(-1).push(childResult);
+          returnStack.at(-1).push(ret);
         }
       } // end of rule body
-      if (ruleStack.length === 0) {
+      if (ruleStack.length === 1) {
         break;
       }
       [currRule, ip] = ruleStack.pop();
