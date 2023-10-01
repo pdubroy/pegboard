@@ -5,24 +5,14 @@ function assert(cond, msg) {
 }
 
 const instr = {
-  // Rule applications have the low bit set.
-  // Remaining bits encode the index of the rule to apply.
-  app(idx) {
-    if (idx < 127) {
-      return (idx << 1) + 1;
-    }
-    assert(idx < 256, "Rule index must be less than 256");
-
-    // Rule application in the range [127, 256) takes two bytes.
-    return [0xff, idx];
-  },
+  app: 1,
   term: 2,
-  range: 4,
-  beginChoice: 6,
-  endChoiceArm: 8,
-  beginRep: 10,
-  beginNot: 12,
-  end: 14,
+  range: 3,
+  beginChoice: 4,
+  endChoiceArm: 5,
+  beginRep: 6,
+  beginNot: 7,
+  end: 8,
 };
 
 export class Matcher {
@@ -82,14 +72,11 @@ export class Matcher {
               tree.push(str);
             }
             break;
-          default:
-            if (op & 1) {
-              const ruleIdx = op >> 1;
-              // When pushing, advance ip over the rule application.
-              ruleStack.push([currRule, ip]);
-              currRule = this.compiledRules[ruleIdx];
-              ip = 0;
-            }
+          case instr.app:
+            const ruleIdx = currRule[ip++];
+            ruleStack.push([currRule, ip]);
+            currRule = this.compiledRules[ruleIdx];
+            ip = 0;
             break;
         }
       }
@@ -109,7 +96,7 @@ export class RuleApplication {
 
   toBytecode(ruleIndices) {
     const idx = ruleIndices.get(this.ruleName);
-    return [instr.app(idx)];
+    return [instr.app, idx];
   }
 }
 
