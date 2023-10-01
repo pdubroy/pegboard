@@ -8,11 +8,11 @@ const instr = {
   app: 1,
   terminal: 2,
   range: 3,
-  beginChoice: 4,
-  endChoiceArm: 5,
-  beginRep: 6,
-  beginNot: 7,
-  end: 8,
+  begin: 4,
+  nextChoice: 5,
+  endChoice: 6,
+  endRep: 7,
+  endNot: 8,
 };
 
 export class Matcher {
@@ -33,14 +33,38 @@ export class Matcher {
     let pos = 0;
 
     const returnStack = [];
-    let ruleStack = [];
+    const ruleStack = [];
     let currRule = [instr.app, this.startRuleIndex];
     let ip = 0;
 
+    const skipToEnd = () => {
+      // Advance to the end of the current sequence
+      let nesting = 0;
+      while (ip < currRule.length) {
+        // prettier-ignore
+        switch (currRule[ip++]) {
+          case instr.app: ip += 1; break;
+          case instr.terminal: ip += currRule[ip++]; break;
+          case instr.range: ip += 2; break;
+          case instr.begin: ++nesting; break;
+          case instr.nextChoice:
+          case instr.endChoice:
+          case instr.endRep:
+          case instr.endNot:
+            if (nesting-- === 0) {
+              --ip;
+              return;
+            }
+        }
+      }
+    };
+
     while (true) {
       while (ip < currRule.length) {
-        let ret = false;
-        switch (currRule[ip++]) {
+        const op = currRule[ip++];
+        switch (op) {
+          // Atomic instructions set `ret`, and use `break`.
+          // Higher-order instructions use `continue`.
           case instr.app:
             // TODO: Use LEB128 encoding to support >256 rules.
             const ruleIdx = currRule[ip++];
@@ -55,7 +79,7 @@ export class Matcher {
             const str = this.textDecoder.decode(currRule.slice(ip, ip + len));
             ip += len;
 
-            ret = str;
+            let ret = str;
             for (let i = 0; i < len; i++) {
               if (input[pos++] !== str[i]) {
                 pos = origPos;
@@ -63,6 +87,7 @@ export class Matcher {
                 break;
               }
             }
+            returnStack.push(ret);
             break;
           case instr.range:
             // TODO: This is not correct, need UTF-8 decoding here.
@@ -71,34 +96,35 @@ export class Matcher {
             const nextCp = input.codePointAt(pos);
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
-              ret = String.fromCodePoint(nextCp);
+              returnStack.push(String.fromCodePoint(nextCp));
+            } else {
+              returnStack.push(false);
             }
             break;
-          case instr.beginChoice:
-          case instr.endChoiceArm:
-          case instr.beginRep:
-          case instr.beginNot:
-          case instr.end:
-        }
-        if (ret === false) {
-          returnStack.pop();
-          returnStack.push(false);
-
-          // Advance to the end of the current sequence
-          let nesting = 0;
-          loop: while (ip < currRule.length) {
-            // prettier-ignore
-            switch (currRule[ip++]) {
-              case instr.app: ip += 1; break;
-              case instr.terminal: ip += currRule[ip++]; break;
-              case instr.range: ip += 2; break;
-              case instr.beginChoice:
-              case instr.beginRep:
-              case instr.beginNot: ++nesting; break;
-              case instr.endChoiceArm: break;
-              case instr.end: if (nesting-- === 0) break loop;
+          case instr.begin:
+            returnStack.push([]);
+            continue;
+          case instr.nextChoice:
+            if (returnStack.at(-1) === false) {
+              // Clear the failure so we can try the next alternative.
+              returnStack.pop();
+            } else {
+              // Previous alternative succeeded, so skip the next one.
+              skipToEnd();
             }
-          }
+            continue;
+          case instr.endChoice:
+            continue;
+          case instr.endRep:
+          case instr.endNot:
+          default:
+            throw new Error(`unhandled bytecode: ${op}`);
+        }
+        let ret = returnStack.pop();
+        if (ret === false) {
+          returnStack.pop(); // Pop the list of child results.
+          returnStack.push(false);
+          skipToEnd();
         } else {
           returnStack.at(-1).push(ret);
         }
@@ -157,12 +183,12 @@ export class Choice {
 
   toBytecode(ruleIndices) {
     return [
-      instr.beginChoice,
-      ...this.exps.flatMap((exp) => [
-        exp.toBytecode(ruleIndices),
-        instr.endChoiceArm,
-      ]),
-      instr.end,
+      instr.begin,
+      this.exps[0].toBytecode(ruleIndices),
+      ...this.exps
+        .slice(1)
+        .flatMap((exp) => [instr.nextChoice, exp.toBytecode(ruleIndices)]),
+      instr.endChoice,
     ];
   }
 }

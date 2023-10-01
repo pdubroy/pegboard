@@ -6,10 +6,12 @@ import * as switchInterp from "../src/switch-interp.js";
 
 //const es5 = ES5(switchInterp);
 
-const { Matcher, Range, RuleApplication, Sequence, Terminal } = switchInterp;
+const { Choice, Matcher, Range, RuleApplication, Sequence, Terminal } =
+  switchInterp;
 
 const _ = (value) => new Terminal(value);
 const app = (ruleName) => new RuleApplication(ruleName);
+const choice = (...exps) => new Choice(exps);
 const range = (start, end) => new Range(start, end);
 const seq = (...exps) => new Sequence(exps);
 
@@ -72,6 +74,15 @@ test("seq", () => {
   });
   assert.ok(g2.match("abc"));
   assert.not.ok(g2.match("abz"));
+});
+
+test("choice", () => {
+  const g = new Matcher({
+    start: choice(_("a"), _("b")),
+  });
+  assert.ok(g.match("a"));
+  assert.ok(g.match("b"));
+  assert.not.ok(g.match("xyz"));
 });
 
 test.run();
