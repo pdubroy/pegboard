@@ -6,7 +6,7 @@ function assert(cond, msg) {
 
 const instr = {
   app: 1,
-  term: 2,
+  terminal: 2,
   range: 3,
   beginChoice: 4,
   endChoiceArm: 5,
@@ -35,13 +35,39 @@ export class Matcher {
     let ruleStack = [];
     let currRule = this.compiledRules[this.startRuleIndex];
 
-    const tree = [];
+    // Note that since the first rule application is implicit, the return
+    // stack always has one element more than `ruleStack`.
+    const returnStack = [[]];
 
     while (true) {
-      let failed = false;
-      while (!failed && ip < currRule.length) {
+      while (ip < currRule.length) {
+        let nesting = 0;
         let op = currRule[ip++];
         switch (op) {
+          case instr.app:
+            // TODO: Use LEB128 encoding to support >256 rules.
+            const ruleIdx = currRule[ip++];
+            returnStack.push([]);
+            ruleStack.push([currRule, ip]);
+            currRule = this.compiledRules[ruleIdx];
+            ip = 0;
+            continue;
+          case instr.terminal:
+            const origPos = pos;
+            const len = currRule[ip++];
+            const str = this.textDecoder.decode(currRule.slice(ip, ip + len));
+            ip += len;
+
+            let ret = str;
+            for (let i = 0; i < len; i++) {
+              if (input[pos++] !== str[i]) {
+                pos = origPos;
+                ret = false;
+                break;
+              }
+            }
+            returnStack.push(ret);
+            break;
           case instr.range:
             // TODO: This is not correct, need UTF-8 decoding here.
             const startCp = currRule[ip++];
@@ -49,43 +75,47 @@ export class Matcher {
             const nextCp = input.codePointAt(pos);
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
-              tree.push(String.fromCodePoint(nextCp));
+              returnStack.push(String.fromCodePoint(nextCp));
             } else {
-              console.log("range failed");
-              failed = true;
+              returnStack.push(false);
             }
             break;
-          case instr.term:
-            const origPos = pos;
-            const len = currRule[ip++];
-            const str = this.textDecoder.decode(currRule.slice(ip, ip + len));
-            ip += len;
-
-            for (let i = 0; i < len; i++) {
-              if (input[pos++] !== str[i]) {
-                pos = origPos;
-                failed = true;
-                break;
-              }
-            }
-            if (!failed) {
-              tree.push(str);
-            }
-            break;
-          case instr.app:
-            const ruleIdx = currRule[ip++];
-            ruleStack.push([currRule, ip]);
-            currRule = this.compiledRules[ruleIdx];
-            ip = 0;
-            break;
+          case beginChoice:
+          case endChoiceArm:
+          case beginRep:
+          case beginNot:
+          case end:
         }
-      }
+        const childResult = returnStack.pop();
+        if (childResult === false) {
+          returnStack.pop();
+          returnStack.push(false);
+
+          // Advance to the end of the current sequence
+          let origNesting = nesting;
+          loop: while ((op = currRule[ip++]) !== undefined) {
+            // prettier-ignore
+            switch (op) {
+              case instr.app: ip += 1; break;
+              case instr.terminal: ip += currRule[ip++]; break;
+              case instr.range: ip += 2; break;
+              case instr.beginChoice:
+              case instr.beginRep:
+              case instr.beginNot: ++nesting; break;
+              case instr.endChoiceArm: break;
+              case instr.end: if (nesting-- === origNesting) break loop;
+            }
+          }
+        } else {
+          returnStack.at(-1).push(childResult);
+        }
+      } // end of rule body
       if (ruleStack.length === 0) {
         break;
       }
       [currRule, ip] = ruleStack.pop();
     }
-    return pos === input.length ? tree[0] : undefined;
+    return pos >= input.length ? returnStack[0] : undefined;
   }
 }
 
@@ -108,7 +138,7 @@ export class Terminal {
   toBytecode() {
     const utf8Bytes = new TextEncoder().encode(this.str);
     assert(utf8Bytes.length <= 256, "max terminal length is 256");
-    return [instr.term, utf8Bytes.length, ...utf8Bytes];
+    return [instr.terminal, utf8Bytes.length, ...utf8Bytes];
   }
 }
 

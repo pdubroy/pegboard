@@ -47,11 +47,11 @@ test("terminal", () => {
   const g2 = new Matcher({
     start: _(""),
   });
-  assert.equal(g2.match(""), "");
+  assert.equal(g2.match(""), [""]);
   assert.is(g2.match("xyz"), undefined);
 });
 
-test("terminal", () => {
+test("terminal2", () => {
   const g = new Matcher({
     start: _("foo"),
   });
