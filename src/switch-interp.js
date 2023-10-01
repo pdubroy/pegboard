@@ -33,6 +33,7 @@ export class Matcher {
     let pos = 0;
 
     const returnStack = [];
+    const posStack = [];
     const ruleStack = [];
     let currRule = [instr.app, this.startRuleIndex];
     let ip = 0;
@@ -65,21 +66,13 @@ export class Matcher {
         switch (op) {
           // Atomic instructions set `ret`, and use `break`.
           // Higher-order instructions use `continue`.
-          case instr.app:
-            // TODO: Use LEB128 encoding to support >256 rules.
-            const ruleIdx = currRule[ip++];
-            returnStack.push([]);
-            ruleStack.push([currRule, ip]);
-            currRule = this.compiledRules[ruleIdx];
-            ip = 0;
-            continue;
           case instr.terminal:
-            const origPos = pos;
             const len = currRule[ip++];
             const str = this.textDecoder.decode(currRule.slice(ip, ip + len));
             ip += len;
 
             let ret = str;
+            let origPos = pos;
             for (let i = 0; i < len; i++) {
               if (input[pos++] !== str[i]) {
                 pos = origPos;
@@ -101,15 +94,25 @@ export class Matcher {
               returnStack.push(false);
             }
             break;
+          case instr.app:
+            // TODO: Use LEB128 encoding to support >256 rules.
+            const ruleIdx = currRule[ip++];
+            returnStack.push([]);
+            posStack.push(pos);
+            ruleStack.push([currRule, ip]);
+            currRule = this.compiledRules[ruleIdx];
+            ip = 0;
+            continue;
           case instr.begin:
             returnStack.push([]);
+            posStack.push(pos);
             continue;
           case instr.nextChoice:
             if (returnStack.at(-1) === false) {
-              // Clear the failure so we can try the next alternative.
+              // Previous alternative failed — clear and try the next.
               returnStack.pop();
             } else {
-              // Previous alternative succeeded, so skip the next one.
+              // Previous alternative succeeded — skip the next one.
               skipToEnd();
             }
             continue;
@@ -124,6 +127,7 @@ export class Matcher {
         if (ret === false) {
           returnStack.pop(); // Pop the list of child results.
           returnStack.push(false);
+          pos = posStack.pop();
           skipToEnd();
         } else {
           returnStack.at(-1).push(ret);

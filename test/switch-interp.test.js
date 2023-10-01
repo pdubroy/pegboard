@@ -4,7 +4,12 @@ import * as assert from "uvu/assert";
 import { ES5 } from "../src/es5.js";
 import * as switchInterp from "../src/switch-interp.js";
 
-//const es5 = ES5(switchInterp);
+const es5 = ES5(switchInterp);
+
+test.skip("ES5 basics", () => {
+  assert.ok(es5.match("var x = 3"));
+  assert.not.ok(es5.match("var = 3"));
+});
 
 const { Choice, Matcher, Range, RuleApplication, Sequence, Terminal } =
   switchInterp;
@@ -76,13 +81,30 @@ test("seq", () => {
   assert.not.ok(g2.match("abz"));
 });
 
-test("choice", () => {
+test("simple choice", () => {
   const g = new Matcher({
     start: choice(_("a"), _("b")),
   });
   assert.ok(g.match("a"));
   assert.ok(g.match("b"));
-  assert.not.ok(g.match("xyz"));
+  assert.not.ok(g.match("c"));
+});
+
+test("nested choice", () => {
+  const g = new Matcher({
+    start: choice(_("a"), choice(_("b"), _("c"))),
+  });
+  assert.ok(g.match("b"));
+  assert.ok(g.match("c"));
+});
+
+test("choice with seq", () => {
+  const g = new Matcher({
+    start: choice(seq(_("a"), _("b")), seq(_("a"), _("c"))),
+  });
+  assert.ok(g.match("ab"));
+  assert.ok(g.match("ac"));
+  assert.not.ok(g.match("acd"));
 });
 
 test.run();
