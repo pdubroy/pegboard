@@ -4,24 +4,54 @@ function assert(cond, msg) {
   }
 }
 
+// Return an array containing four bytes encoding `val` in little-endian order.
+function i32(val) {
+  assert(
+    Number.isInteger(val) && (val & 0xffffffff) === val,
+    "not a 32-bit integer",
+  );
+  const buf = new ArrayBuffer(4);
+  new Int32Array(buf)[0] = val;
+  return Array.from(new Uint8Array(buf));
+}
+
+function sizeInBytes(frag) {
+  return frag.flat(Infinity).length;
+}
+
 const instr = {
   app: 1,
   terminal: 2,
   range: 3,
-  begin: 4,
   nextChoice: 5,
   endChoice: 6,
   endRep: 7,
   endNot: 8,
+  jumpIfFailed: 9,
+  jumpIfSucceeded: 10,
+  pass: 11,
+  clearResult: 12,
+  newResultList: 13,
+  appendResult: 14,
+  savePos: 15,
+  restorePosCond: 16,
+  fail: 17,
 };
+
+// A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
+const jumpFragSize = sizeInBytes([instr.jump, i32(0)]);
 
 export class Matcher {
   constructor(rules) {
     const ruleIndexByName = new Map(Object.keys(rules).map((k, i) => [k, i]));
 
+    // Treat rule bodies as implicitly being sequences.
+    const ensureSeq = (body) =>
+      body instanceof Sequence ? body : new Sequence([body]);
+
     this.compiledRules = [];
     for (const ruleName in rules) {
-      const bytes = rules[ruleName].toBytecode(ruleIndexByName);
+      const bytes = ensureSeq(rules[ruleName]).toBytecode(ruleIndexByName);
       const idx = ruleIndexByName.get(ruleName);
       this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
     }
@@ -97,15 +127,16 @@ export class Matcher {
           case instr.app:
             // TODO: Use LEB128 encoding to support >256 rules.
             const ruleIdx = currRule[ip++];
-            returnStack.push([]);
-            posStack.push(pos);
             ruleStack.push([currRule, ip]);
             currRule = this.compiledRules[ruleIdx];
             ip = 0;
             continue;
-          case instr.begin:
-            returnStack.push([]);
+          case instr.savePos:
             posStack.push(pos);
+            continue;
+          case instr.restorePosCond:
+            const prevPos = posStack.pop();
+            if (returnStack.at(-1) === false) pos = prevPos;
             continue;
           case instr.nextChoice:
             if (returnStack.at(-1) === false) {
@@ -118,19 +149,38 @@ export class Matcher {
             continue;
           case instr.endChoice:
             continue;
+          case instr.jumpIfFailed:
+          case instr.jumpIfSucceeded:
+            let disp =
+              currRule[ip++] |
+              (currRule[ip++] << 8) |
+              (currRule[ip++] << 16) |
+              (currRule[ip++] << 24);
+            let cond = returnStack.at(-1) === false;
+            if (op === instr.jumpIfSucceeded) cond = !cond;
+            if (cond) ip += disp;
+            continue;
+          case instr.newResultList:
+            returnStack.push([]);
+            posStack.push(pos);
+            continue;
+          case instr.appendResult:
+            returnStack.at(-2).push(returnStack.pop());
+            posStack.pop();
+            continue;
+          case instr.clearResult:
+            returnStack.pop();
+            continue;
+          case instr.pass:
+            returnStack.push([]);
+            continue;
+          case instr.fail:
+            returnStack.push(false);
+            continue;
           case instr.endRep:
           case instr.endNot:
           default:
-            throw new Error(`unhandled bytecode: ${op}`);
-        }
-        let ret = returnStack.pop();
-        if (ret === false) {
-          returnStack.pop(); // Pop the list of child results.
-          returnStack.push(false);
-          pos = posStack.pop();
-          skipToEnd();
-        } else {
-          returnStack.at(-1).push(ret);
+            throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
       } // end of rule body
       if (ruleStack.length === 1) {
@@ -186,14 +236,24 @@ export class Choice {
   }
 
   toBytecode(ruleIndices) {
-    return [
-      instr.begin,
-      this.exps[0].toBytecode(ruleIndices),
-      ...this.exps
-        .slice(1)
-        .flatMap((exp) => [instr.nextChoice, exp.toBytecode(ruleIndices)]),
-      instr.endChoice,
-    ];
+    const fragments = this.exps.map((e) =>
+      e.toBytecode(ruleIndices).flat(Infinity),
+    );
+
+    const bytes = [instr.fail];
+
+    // Walk the fragments in reverse order so we can easily calculate
+    // jump displacement.
+    for (const frag of fragments.reverse()) {
+      const disp = bytes.length + 1;
+      bytes.unshift(
+        ...frag,
+        instr.jumpIfSucceeded,
+        ...i32(disp),
+        instr.clearResult,
+      );
+    }
+    return bytes;
   }
 }
 
@@ -203,7 +263,32 @@ export class Sequence {
   }
 
   toBytecode(ruleIndices) {
-    return this.exps.map((e) => e.toBytecode(ruleIndices));
+    if (this.exps.length === 0) {
+      return [instr.pass, instr.appendResult];
+    }
+
+    const fragments = this.exps.map((e) =>
+      e.toBytecode(ruleIndices).flat(Infinity),
+    );
+
+    const bytes = [];
+
+    // Walk the fragments in reverse order so we can easily calculate
+    // jump displacement.
+    for (const frag of fragments.reverse()) {
+      const disp = bytes.length + 1;
+      bytes.unshift(
+        ...frag,
+        instr.jumpIfFailed,
+        ...i32(disp),
+        instr.appendResult,
+      );
+    }
+    bytes.unshift(instr.newResultList);
+
+    bytes.push(instr.restorePosCond); // This is the jump target
+
+    return bytes;
   }
 }
 

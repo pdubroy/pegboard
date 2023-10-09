@@ -4,7 +4,7 @@ import * as assert from "uvu/assert";
 import { ES5 } from "../src/es5.js";
 import * as switchInterp from "../src/switch-interp.js";
 
-const es5 = ES5(switchInterp);
+//const es5 = ES5(switchInterp);
 
 test.skip("ES5 basics", () => {
   assert.ok(es5.match("var x = 3"));
@@ -105,6 +105,11 @@ test("choice with seq", () => {
   assert.ok(g.match("ab"));
   assert.ok(g.match("ac"));
   assert.not.ok(g.match("acd"));
+
+  const g2 = new Matcher({
+    start: choice(seq(_("ab")), seq(_("ac"))),
+  });
+  assert.ok(g2.match("ac"));
 });
 
 test.run();
