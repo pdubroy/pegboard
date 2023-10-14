@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
     "target": "esnext",
+    "moduleResolution": "node",
     "lib": ["ES2022", "DOM"],
     "noImplicitAny": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

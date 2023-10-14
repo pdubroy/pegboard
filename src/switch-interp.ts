@@ -1,7 +1,7 @@
 type CstNode = string | CstNode[];
 type Result = CstNode | false;
 
-interface PExpr {
+export interface PExpr {
   toBytecode(ruleIndices: Map<string, number>): number[];
 }
 
