@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": ["ES2022", "DOM"],
+    "noImplicitAny": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"]
+}

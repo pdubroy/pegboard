@@ -11,14 +11,22 @@ test.skip("ES5 basics", () => {
   assert.not.ok(es5.match("var = 3"));
 });
 
-const { Choice, Matcher, Range, RuleApplication, Sequence, Terminal } =
-  switchInterp;
+const {
+  Choice,
+  Matcher,
+  Range,
+  RuleApplication,
+  Sequence,
+  Terminal,
+  Repetition,
+} = switchInterp;
 
 const _ = (value) => new Terminal(value);
 const app = (ruleName) => new RuleApplication(ruleName);
 const choice = (...exps) => new Choice(exps);
 const range = (start, end) => new Range(start, end);
 const seq = (...exps) => new Sequence(exps);
+const rep = (exp) => new Repetition(exp);
 
 test("range", () => {
   const g = new Matcher({
@@ -110,6 +118,15 @@ test("choice with seq", () => {
     start: choice(seq(_("ab")), seq(_("ac"))),
   });
   assert.ok(g2.match("ac"));
+});
+
+test("repetition", () => {
+  const g = new Matcher({
+    start: rep(_("a")),
+  });
+  assert.ok(g.match(""));
+  assert.ok(g.match("a"));
+  assert.ok(g.match("aaaa"));
 });
 
 test.run();
