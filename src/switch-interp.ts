@@ -30,17 +30,12 @@ const instr = {
   app: 1,
   terminal: 2,
   range: 3,
-  nextChoice: 5,
-  endChoice: 6,
-  endRep: 7,
-  endNot: 8,
   jumpIfFailed: 9,
   jumpIfSucceeded: 10,
   jump: 11,
   clearResult: 12,
   newResultList: 13,
   appendResult: 14,
-  savePos: 16,
   restorePosCond: 17,
   fail: 18,
 };
@@ -78,27 +73,6 @@ export class Matcher {
     const ruleStack: [Uint8Array, number][] = [];
     let currRule = new Uint8Array([instr.app, this.startRuleIndex]);
     let ip = 0;
-
-    const skipToEnd = () => {
-      // Advance to the end of the current sequence
-      let nesting = 0;
-      while (ip < currRule.length) {
-        // prettier-ignore
-        switch (currRule[ip++]) {
-          case instr.app: ip += 1; break;
-          case instr.terminal: ip += currRule[ip++]; break;
-          case instr.range: ip += 2; break;
-          case instr.nextChoice:
-          case instr.endChoice:
-          case instr.endRep:
-          case instr.endNot:
-            if (nesting-- === 0) {
-              --ip;
-              return;
-            }
-        }
-      }
-    };
 
     while (true) {
       while (ip < currRule.length) {
@@ -143,23 +117,9 @@ export class Matcher {
             currRule = this.compiledRules[ruleIdx];
             ip = 0;
             continue;
-          case instr.savePos:
-            posStack.push(pos);
-            continue;
           case instr.restorePosCond:
             const prevPos = posStack.pop();
             if (returnStack.at(-1) === false) pos = prevPos;
-            continue;
-          case instr.nextChoice:
-            if (returnStack.at(-1) === false) {
-              // Previous alternative failed — clear and try the next.
-              returnStack.pop();
-            } else {
-              // Previous alternative succeeded — skip the next one.
-              skipToEnd();
-            }
-            continue;
-          case instr.endChoice:
             continue;
           case instr.jumpIfFailed:
           case instr.jumpIfSucceeded:
@@ -187,8 +147,6 @@ export class Matcher {
           case instr.fail:
             returnStack.push(false);
             continue;
-          case instr.endRep:
-          case instr.endNot:
           default:
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
