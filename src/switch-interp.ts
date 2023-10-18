@@ -77,6 +77,7 @@ export class Matcher {
     while (true) {
       while (ip < currRule.length) {
         const op = currRule[ip++];
+        const origPos = pos;
         switch (op) {
           // Atomic instructions set `ret`, and use `break`.
           // Higher-order instructions use `continue`.
@@ -88,11 +89,10 @@ export class Matcher {
             ip += len;
 
             let ret: Result = str;
-            let origPos = pos;
             for (let i = 0; i < len; i++) {
               if (input[pos++] !== str[i]) {
-                pos = origPos;
                 ret = false;
+                pos = origPos;
                 break;
               }
             }
@@ -116,11 +116,14 @@ export class Matcher {
             ruleStack.push([currRule, ip]);
             currRule = this.compiledRules[ruleIdx];
             ip = 0;
-            continue;
+            break;
           case instr.restorePosCond:
             const prevPos = posStack.pop();
-            if (returnStack.at(-1) === false) pos = prevPos;
-            continue;
+            if (returnStack.at(-1) === false) {
+              pos = prevPos;
+              returnStack.splice(-2, 1); // Throw away result
+            }
+            break;
           case instr.jumpIfFailed:
           case instr.jumpIfSucceeded:
             let disp =
@@ -131,22 +134,22 @@ export class Matcher {
             let cond = returnStack.at(-1) === false;
             if (op === instr.jumpIfSucceeded) cond = !cond;
             if (cond) ip += disp;
-            continue;
+            break;
           case instr.newResultList:
             returnStack.push([]);
             posStack.push(pos);
-            continue;
+            break;
           case instr.appendResult:
             // TODO: Can we avoid the cast here?
             (returnStack.at(-2) as any[]).push(returnStack.pop());
             posStack.pop();
-            continue;
+            break;
           case instr.clearResult:
             returnStack.pop();
-            continue;
+            break;
           case instr.fail:
             returnStack.push(false);
-            continue;
+            break;
           default:
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
@@ -156,6 +159,7 @@ export class Matcher {
       }
       [currRule, ip] = ruleStack.pop();
     }
+    assert(returnStack.length === 1, "too much on return stack");
     return pos >= input.length ? returnStack[0] : false;
   }
 }
@@ -224,7 +228,7 @@ export class Sequence {
 
   toBytecode(ruleIndices: Map<string, number>) {
     if (this.exps.length === 0) {
-      return [instr.newResultList, instr.appendResult];
+      return [instr.newResultList];
     }
 
     const fragments = this.exps.map((e) =>
@@ -282,6 +286,6 @@ export class Repetition {
       ...i32(-sizeInBytes(loopBody) - jumpFragSize),
     ];
 
-    return [instr.newResultList, ...loop, instr.appendResult];
+    return [instr.newResultList, ...loop, instr.clearResult];
   }
 }

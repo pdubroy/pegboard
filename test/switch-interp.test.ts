@@ -30,8 +30,8 @@ test("rule application", () => {
     start: app("any"),
     any: range("\u0000", "a"),
   });
-  //  assert.ok(g.match("a"));
-  assert.is(g.match("b"), undefined);
+  assert.ok(g.match("a"));
+  assert.is(g.match("b"), false);
 
   const g2 = new i.Matcher({
     start: app("next"),
@@ -39,7 +39,7 @@ test("rule application", () => {
     any: range("\u0000", "a"),
   });
   assert.ok(g2.match("a"));
-  assert.is(g2.match("b"), undefined);
+  assert.not.ok(g2.match("b"));
 });
 
 test("terminal", () => {
@@ -47,13 +47,13 @@ test("terminal", () => {
     start: _("foo"),
   });
   assert.ok(g.match("foo"));
-  assert.is(g.match("fob"), undefined);
+  assert.not.ok(g.match("fob"));
 
   const g2 = new i.Matcher({
     start: _(""),
   });
   assert.equal(g2.match(""), [""]);
-  assert.is(g2.match("xyz"), undefined);
+  assert.not.ok(g2.match("xyz"));
 });
 
 test("terminal2", () => {
@@ -110,13 +110,39 @@ test("choice with seq", () => {
   assert.ok(g2.match("ac"));
 });
 
-test("repetition", () => {
+test("basic repetition", () => {
   const g = new i.Matcher({
     start: rep(_("a")),
   });
   assert.ok(g.match(""));
   assert.ok(g.match("a"));
   assert.ok(g.match("aaaa"));
+});
+
+test("repetition of seq", () => {
+  const g = new i.Matcher({
+    start: rep(seq(_("a"), _("b"))),
+  });
+  assert.ok(g.match("ab"));
+  assert.not.ok(g.match("aba"));
+});
+
+test("seq w/ repetition", () => {
+  const g = new i.Matcher({
+    start: seq(rep(_("a")), _("b")),
+  });
+  assert.ok(g.match("b"));
+  assert.ok(g.match("aab"));
+  assert.not.ok(g.match("aa"));
+});
+
+test("choice w/ repetition", () => {
+  const g = new i.Matcher({
+    start: choice(rep(_("a")), _("b")),
+  });
+  assert.not.ok(g.match("b"));
+  assert.ok(g.match("aa"));
+  assert.not.ok(g.match("ab"));
 });
 
 test.run();
