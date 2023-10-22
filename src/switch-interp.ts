@@ -36,8 +36,11 @@ const instr = {
   clearResult: 12,
   newResultList: 13,
   appendResult: 14,
+  savePos: 15,
+  restorePos: 16,
   restorePosCond: 17,
   fail: 18,
+  not: 19,
 };
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
@@ -117,6 +120,9 @@ export class Matcher {
             currRule = this.compiledRules[ruleIdx];
             ip = 0;
             break;
+          case instr.restorePos:
+            pos = posStack.pop();
+            break;
           case instr.restorePosCond:
             const prevPos = posStack.pop();
             if (returnStack.at(-1) === false) {
@@ -137,6 +143,8 @@ export class Matcher {
             break;
           case instr.newResultList:
             returnStack.push([]);
+            break;
+          case instr.savePos:
             posStack.push(pos);
             break;
           case instr.appendResult:
@@ -150,6 +158,9 @@ export class Matcher {
           case instr.fail:
             returnStack.push(false);
             break;
+          case instr.not:
+            returnStack.push(returnStack.pop() ? false : []);
+            break;
           default:
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
@@ -159,6 +170,7 @@ export class Matcher {
       }
       [currRule, ip] = ruleStack.pop();
     }
+    assert(posStack.length === 0, "too much on pos stack");
     assert(returnStack.length === 1, "too much on return stack");
     return pos >= input.length ? returnStack[0] : false;
   }
@@ -248,7 +260,7 @@ export class Sequence {
         instr.appendResult,
       );
     }
-    bytes.unshift(instr.newResultList);
+    bytes.unshift(instr.newResultList, instr.savePos);
 
     bytes.push(instr.restorePosCond); // This is the jump target
 
@@ -259,8 +271,13 @@ export class Sequence {
 export class Not {
   constructor(public exp: PExpr) {}
 
-  toBytecode(_ruleIndices: Map<string, number>) {
-    return [] as number[];
+  toBytecode(ruleIndices: Map<string, number>) {
+    return [
+      instr.savePos,
+      ...this.exp.toBytecode(ruleIndices),
+      instr.not,
+      instr.restorePos,
+    ];
   }
 }
 

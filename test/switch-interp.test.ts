@@ -17,6 +17,7 @@ const choice = (...exps: i.PExpr[]) => new i.Choice(exps);
 const range = (start: string, end: string) => new i.Range(start, end);
 const seq = (...exps: i.PExpr[]) => new i.Sequence(exps);
 const rep = (exp: i.PExpr) => new i.Repetition(exp);
+const not = (exp: i.PExpr) => new i.Not(exp);
 
 test("range", () => {
   const g = new i.Matcher({
@@ -143,6 +144,22 @@ test("choice w/ repetition", () => {
   assert.not.ok(g.match("b"));
   assert.ok(g.match("aa"));
   assert.not.ok(g.match("ab"));
+});
+
+test("neg lookahead", () => {
+  const g = new i.Matcher({
+    start: seq(not(_("a")), _("b")),
+  });
+  assert.ok(g.match("b"));
+  assert.not.ok(g.match("a"));
+});
+
+test("pos lookahead", () => {
+  const g = new i.Matcher({
+    start: seq(not(not(_("a"))), _("a")),
+  });
+  assert.ok(g.match("a"));
+  assert.not.ok(g.match("b"));
 });
 
 test.run();
