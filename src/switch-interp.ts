@@ -11,6 +11,13 @@ function assert(cond: boolean, msg = "") {
   }
 }
 
+function checkNotNull<T>(x: T): NonNullable<T> {
+  if (x == null) {
+    throw new Error(`expected non-null: ${x}`);
+  }
+  return x as NonNullable<T>;
+}
+
 // Return an array containing four bytes encoding `val` in little-endian order.
 function i32(val: number): number[] {
   assert(
@@ -19,6 +26,16 @@ function i32(val: number): number[] {
   );
   const buf = new ArrayBuffer(4);
   new Int32Array(buf)[0] = val;
+  return Array.from(new Uint8Array(buf));
+}
+
+function i16(val: number): number[] {
+  assert(
+    Number.isInteger(val) && (val & 0xffff) === val,
+    "not a 16-bit integer",
+  );
+  const buf = new ArrayBuffer(2);
+  new Int16Array(buf)[0] = val;
   return Array.from(new Uint8Array(buf));
 }
 
@@ -41,6 +58,8 @@ const instr = {
   restorePosCond: 17,
   fail: 18,
   not: 19,
+  debug1: 20,
+  debug2: 21,
 };
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
@@ -51,8 +70,16 @@ export class Matcher {
   startRuleIndex: number;
   textDecoder: TextDecoder;
 
+  ruleIndexByName: Map<string, number>;
+  ruleNameByIndex: Map<number, string>;
+
   constructor(rules: { [k: string]: PExpr }) {
-    const ruleIndexByName = new Map(Object.keys(rules).map((k, i) => [k, i]));
+    const ruleIndexByName = (this.ruleIndexByName = new Map(
+      Object.keys(rules).map((k, i) => [k, i]),
+    ));
+    this.ruleNameByIndex = new Map(
+      Array.from(ruleIndexByName.entries()).map(([idx, name]) => [name, idx]),
+    );
 
     // Treat rule bodies as implicitly being sequences.
     const ensureSeq = (body: PExpr) =>
@@ -68,22 +95,33 @@ export class Matcher {
     this.textDecoder = new TextDecoder();
   }
 
-  match(input: string): Result {
+  match(input: string, startRule = "start"): Result {
     let pos = 0;
 
+    this.startRuleIndex = this.ruleIndexByName.get(startRule);
+
     const returnStack: Result[] = [];
-    const posStack = [];
+    const posStack: number[] = [];
     const ruleStack: [Uint8Array, number][] = [];
     let currRule = new Uint8Array([instr.app, this.startRuleIndex]);
     let ip = 0;
+
+    // const logRuleEnter = (idx: number) => {
+    //   const indent = new Array(ruleStack.length).join(" ");
+    //   const ruleName = this.ruleNameByIndex.get(idx);
+    //   if (ruleName === "unicodeCombiningMark") debugger;
+    //   console.log(indent + ruleName + ", pos = " + pos);
+    // };
+    // logRuleEnter(this.startRuleIndex);
+
+    const progress: number[] = [];
+    //    let ruleIdxs: number[] = [this.startRuleIndex];
 
     while (true) {
       while (ip < currRule.length) {
         const op = currRule[ip++];
         const origPos = pos;
         switch (op) {
-          // Atomic instructions set `ret`, and use `break`.
-          // Higher-order instructions use `continue`.
           case instr.terminal:
             const len = currRule[ip++];
             const str = this.textDecoder.decode(
@@ -92,7 +130,7 @@ export class Matcher {
             ip += len;
 
             let ret: Result = str;
-            for (let i = 0; i < len; i++) {
+            for (let i = 0; i < str.length; i++) {
               if (input[pos++] !== str[i]) {
                 ret = false;
                 pos = origPos;
@@ -102,9 +140,8 @@ export class Matcher {
             returnStack.push(ret);
             break;
           case instr.range:
-            // TODO: This is not correct, need UTF-8 decoding here.
-            const startCp = currRule[ip++];
-            const endCp = currRule[ip++];
+            const startCp = currRule[ip++] | (currRule[ip++] << 8);
+            const endCp = currRule[ip++] | (currRule[ip++] << 8);
             const nextCp = input.codePointAt(pos);
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
@@ -116,15 +153,17 @@ export class Matcher {
           case instr.app:
             // TODO: Use LEB128 encoding to support >256 rules.
             const ruleIdx = currRule[ip++];
+            // ruleIdxs.push(ruleIdx);
             ruleStack.push([currRule, ip]);
             currRule = this.compiledRules[ruleIdx];
             ip = 0;
+            //            logRuleEnter(ruleIdx);
             break;
           case instr.restorePos:
-            pos = posStack.pop();
+            pos = checkNotNull(posStack.pop());
             break;
           case instr.restorePosCond:
-            const prevPos = posStack.pop();
+            const prevPos = checkNotNull(posStack.pop());
             if (returnStack.at(-1) === false) {
               pos = prevPos;
               returnStack.splice(-2, 1); // Throw away result
@@ -150,16 +189,24 @@ export class Matcher {
           case instr.appendResult:
             // TODO: Can we avoid the cast here?
             (returnStack.at(-2) as any[]).push(returnStack.pop());
-            posStack.pop();
             break;
           case instr.clearResult:
-            returnStack.pop();
+            checkNotNull(returnStack.pop());
             break;
           case instr.fail:
             returnStack.push(false);
             break;
           case instr.not:
-            returnStack.push(returnStack.pop() ? false : []);
+            returnStack.push(checkNotNull(returnStack.pop()) ? false : []);
+            break;
+          case instr.debug1:
+            progress.push(pos);
+            break;
+          case instr.debug2:
+            const beforePos = progress.pop();
+            if (pos === beforePos && returnStack.at(-1)) {
+              throw new Error("possible infinite loop");
+            }
             break;
           default:
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
@@ -168,6 +215,7 @@ export class Matcher {
       if (ruleStack.length === 1) {
         break;
       }
+      // ruleIdxs.pop();
       [currRule, ip] = ruleStack.pop();
     }
     assert(posStack.length === 0, "too much on pos stack");
@@ -206,7 +254,7 @@ export class Range {
     const endCp = this.end.codePointAt(0);
     assert(startCp <= 0xffff, `range start too high: ${startCp}`);
     assert(endCp <= 0xffff, `range end too high: ${endCp}`);
-    return [instr.range, startCp, endCp];
+    return [instr.range, ...i16(startCp), ...i16(endCp)];
   }
 }
 
@@ -288,7 +336,9 @@ export class Repetition {
 
   toBytecode(ruleIndices: Map<string, number>) {
     const loopBody = [
+      instr.debug1,
       ...this.exp.toBytecode(ruleIndices),
+      instr.debug2,
       instr.jumpIfFailed,
       ...i32(jumpFragSize + 1),
       instr.appendResult,

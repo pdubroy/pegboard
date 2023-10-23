@@ -38,7 +38,7 @@ export function ES5(ns) {
       _("\x0C"),
       _(" "),
       _("\u00A0"),
-      _("\uFEFF"),
+      //      _("\uFEFF"),
       app("unicodeSpaceSeparator"),
     ),
     lineTerminator: choice(_("\n"), _("\r"), _("\u2028"), _("\u2029")),

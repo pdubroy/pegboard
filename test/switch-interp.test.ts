@@ -4,11 +4,11 @@ import * as assert from "uvu/assert";
 //import { ES5 } from "../src/es5.js";
 import * as i from "../src/switch-interp.js";
 
-//const es5 = ES5(switchInterp);
+//const es5 = ES5(i);
 
+// This works but currently takes a long time!
 // test.skip("ES5 basics", () => {
-//   assert.ok(es5.match("var x = 3"));
-//   assert.not.ok(es5.match("var = 3"));
+//   assert.ok(es5.match("var x = 3", "program"));
 // });
 
 const _ = (value: string) => new i.Terminal(value);
@@ -144,6 +144,18 @@ test("choice w/ repetition", () => {
   assert.not.ok(g.match("b"));
   assert.ok(g.match("aa"));
   assert.not.ok(g.match("ab"));
+});
+
+test("repetition in seq", () => {
+  const g = new i.Matcher({
+    start: seq(rep(_("a")), rep(_("b"))),
+  });
+  assert.ok(g.match("aa"));
+  assert.ok(g.match("aab"));
+  assert.ok(g.match("bbb"));
+  assert.not.ok(g.match("c"));
+  assert.not.ok(g.match("abc"));
+  assert.not.ok(g.match("acb"));
 });
 
 test("neg lookahead", () => {
