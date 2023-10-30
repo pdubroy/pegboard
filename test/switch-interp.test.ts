@@ -1,40 +1,34 @@
 import { test } from "uvu";
 import * as assert from "uvu/assert";
 
-//import { ES5 } from "../src/es5.js";
-import * as i from "../src/switch-interp.js";
+import { ES5 } from "../src/es5.ts";
+import Factory from "../src/switch-interp.ts";
 
-//const es5 = ES5(i);
+const es5 = ES5(Factory);
+
+const { _, app, choice, matcher, not, range, rep, seq } = Factory;
 
 // This works but currently takes a long time!
-// test.skip("ES5 basics", () => {
-//   assert.ok(es5.match("var x = 3", "program"));
-// });
-
-const _ = (value: string) => new i.Terminal(value);
-const app = (ruleName: string) => new i.RuleApplication(ruleName);
-const choice = (...exps: i.PExpr[]) => new i.Choice(exps);
-const range = (start: string, end: string) => new i.Range(start, end);
-const seq = (...exps: i.PExpr[]) => new i.Sequence(exps);
-const rep = (exp: i.PExpr) => new i.Repetition(exp);
-const not = (exp: i.PExpr) => new i.Not(exp);
+test.skip("ES5 basics", () => {
+  assert.ok(es5.match("3", "logicalANDExpression"));
+});
 
 test("range", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: range("\u0000", "\uFFFF"),
   });
   assert.ok(g.match("a"));
 });
 
 test("rule application", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: app("any"),
     any: range("\u0000", "a"),
   });
   assert.ok(g.match("a"));
   assert.is(g.match("b"), false);
 
-  const g2 = new i.Matcher({
+  const g2 = matcher({
     start: app("next"),
     next: app("any"),
     any: range("\u0000", "a"),
@@ -44,13 +38,13 @@ test("rule application", () => {
 });
 
 test("terminal", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: _("foo"),
   });
   assert.ok(g.match("foo"));
   assert.not.ok(g.match("fob"));
 
-  const g2 = new i.Matcher({
+  const g2 = matcher({
     start: _(""),
   });
   assert.equal(g2.match(""), [""]);
@@ -58,7 +52,7 @@ test("terminal", () => {
 });
 
 test("terminal2", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: _("foo"),
   });
   assert.ok(g.match("foo"));
@@ -66,13 +60,13 @@ test("terminal2", () => {
 });
 
 test("seq", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: seq(_("a"), _("b"), _("c")),
   });
   assert.ok(g.match("abc"));
   assert.not.ok(g.match("xyz"));
 
-  const g2 = new i.Matcher({
+  const g2 = matcher({
     start: seq(_("a"), app("any"), _("c")),
     any: range("\u0000", "\uFFFF"),
   });
@@ -81,7 +75,7 @@ test("seq", () => {
 });
 
 test("simple choice", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: choice(_("a"), _("b")),
   });
   assert.ok(g.match("a"));
@@ -90,7 +84,7 @@ test("simple choice", () => {
 });
 
 test("nested choice", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: choice(_("a"), choice(_("b"), _("c"))),
   });
   assert.ok(g.match("b"));
@@ -98,21 +92,21 @@ test("nested choice", () => {
 });
 
 test("choice with seq", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: choice(seq(_("a"), _("b")), seq(_("a"), _("c"))),
   });
   assert.ok(g.match("ab"));
   assert.ok(g.match("ac"));
   assert.not.ok(g.match("acd"));
 
-  const g2 = new i.Matcher({
+  const g2 = matcher({
     start: choice(seq(_("ab")), seq(_("ac"))),
   });
   assert.ok(g2.match("ac"));
 });
 
 test("basic repetition", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: rep(_("a")),
   });
   assert.ok(g.match(""));
@@ -121,7 +115,7 @@ test("basic repetition", () => {
 });
 
 test("repetition of seq", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: rep(seq(_("a"), _("b"))),
   });
   assert.ok(g.match("ab"));
@@ -129,7 +123,7 @@ test("repetition of seq", () => {
 });
 
 test("seq w/ repetition", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: seq(rep(_("a")), _("b")),
   });
   assert.ok(g.match("b"));
@@ -138,7 +132,7 @@ test("seq w/ repetition", () => {
 });
 
 test("choice w/ repetition", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: choice(rep(_("a")), _("b")),
   });
   assert.not.ok(g.match("b"));
@@ -147,7 +141,7 @@ test("choice w/ repetition", () => {
 });
 
 test("repetition in seq", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: seq(rep(_("a")), rep(_("b"))),
   });
   assert.ok(g.match("aa"));
@@ -159,7 +153,7 @@ test("repetition in seq", () => {
 });
 
 test("neg lookahead", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: seq(not(_("a")), _("b")),
   });
   assert.ok(g.match("b"));
@@ -167,7 +161,7 @@ test("neg lookahead", () => {
 });
 
 test("pos lookahead", () => {
-  const g = new i.Matcher({
+  const g = matcher({
     start: seq(not(not(_("a"))), _("a")),
   });
   assert.ok(g.match("a"));

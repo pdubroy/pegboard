@@ -1,3 +1,5 @@
+import { ParserFactory } from "./types.js";
+
 /*
   Exports a function which is a factory for ES5 parsers.
   To build a parser, call the function with either the `standard` or `incremental`
@@ -7,20 +9,11 @@
       var matcher = es5(require('./standard'));
       var incMatcher = es5(require('./incremental'));
  */
-export function ES5(ns) {
-  // Combinators for instantiating the various PExp subclasses.
-  const _ = (value) => new ns.Terminal(value);
-  const app = (ruleName) => new ns.RuleApplication(ruleName);
-  const seq = (...exps) => new ns.Sequence(exps);
-  const choice = (...exps) => new ns.Choice(exps);
-  const rep = (exp) => new ns.Repetition(exp);
-  const not = (exp) => new ns.Not(exp);
-  const lookahead = (exp) => not(not(exp));
-  const range = (start, end) => new ns.Range(start, end);
+export function ES5<T, R>(factory: ParserFactory<T, R>) {
+  const { _, app, choice, lookahead, matcher, not, range, rep, seq } = factory;
+  const lexIgnored = (exp: T) => exp;
 
-  const lexIgnored = (exp) => exp;
-
-  return new ns.Matcher({
+  return matcher({
     start: app("program"),
     any: range("\u0000", "\uFFFF"),
     end: not(app("any")),
@@ -38,7 +31,7 @@ export function ES5(ns) {
       _("\x0C"),
       _(" "),
       _("\u00A0"),
-      _("\uFEFF"),
+      //      _("\uFEFF"),
       app("unicodeSpaceSeparator"),
     ),
     lineTerminator: choice(_("\n"), _("\r"), _("\u2028"), _("\u2029")),

@@ -1,5 +1,5 @@
 type CstNode = string | CstNode[];
-type Result = CstNode | false;
+export type Result = CstNode | false;
 
 export interface PExpr {
   toBytecode(ruleIndices: Map<string, number>): number[];
@@ -65,7 +65,7 @@ const instr = {
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
 const jumpFragSize = sizeInBytes([instr.jump, ...i32(0)]);
 
-export class Matcher {
+class Matcher {
   compiledRules: Uint8Array[];
   startRuleIndex: number;
   textDecoder: TextDecoder;
@@ -224,7 +224,7 @@ export class Matcher {
   }
 }
 
-export class RuleApplication {
+class RuleApplication {
   constructor(public ruleName: string) {}
 
   toBytecode(ruleIndices: Map<string, number>) {
@@ -233,7 +233,7 @@ export class RuleApplication {
   }
 }
 
-export class Terminal {
+class Terminal {
   constructor(public str: string) {}
 
   toBytecode() {
@@ -243,7 +243,7 @@ export class Terminal {
   }
 }
 
-export class Range {
+class Range {
   constructor(
     public start: string,
     public end: string,
@@ -258,7 +258,7 @@ export class Range {
   }
 }
 
-export class Choice {
+class Choice {
   constructor(public exps: PExpr[]) {}
 
   toBytecode(ruleIndices: Map<string, number>) {
@@ -283,7 +283,7 @@ export class Choice {
   }
 }
 
-export class Sequence {
+class Sequence {
   constructor(public exps: PExpr[]) {}
 
   toBytecode(ruleIndices: Map<string, number>) {
@@ -316,7 +316,7 @@ export class Sequence {
   }
 }
 
-export class Not {
+class Not {
   constructor(public exp: PExpr) {}
 
   toBytecode(ruleIndices: Map<string, number>) {
@@ -329,7 +329,7 @@ export class Not {
   }
 }
 
-export class Repetition {
+class Repetition {
   constructor(public exp: PExpr) {
     this.exp = exp;
   }
@@ -356,3 +356,15 @@ export class Repetition {
     return [instr.newResultList, ...loop, instr.clearResult];
   }
 }
+
+export default {
+  _: (value: string) => new Terminal(value),
+  app: (ruleName: string) => new RuleApplication(ruleName),
+  choice: (...exps: PExpr[]) => new Choice(exps),
+  lookahead: (exp: PExpr) => new Not(new Not(exp)),
+  matcher: (rules: { [k: string]: PExpr }) => new Matcher(rules),
+  not: (exp: PExpr) => new Not(exp),
+  range: (start: string, end: string) => new Range(start, end),
+  rep: (exp: PExpr) => new Repetition(exp),
+  seq: (...exps: PExpr[]) => new Sequence(exps),
+};
