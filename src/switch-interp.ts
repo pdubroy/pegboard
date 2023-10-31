@@ -1,4 +1,5 @@
-type CstNode = string | CstNode[];
+import { CstNode } from "./types.ts";
+
 export type Result = CstNode | false;
 
 export interface PExpr {

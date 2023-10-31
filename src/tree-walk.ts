@@ -1,9 +1,26 @@
-export class Matcher {
-  constructor(rules) {
-    this.rules = rules;
-  }
+import { CstNode } from "./types.ts";
 
-  match(input) {
+type Result = CstNode | null;
+
+interface MemoEntry {
+  cst: Result;
+  nextPos?: number;
+}
+
+type PosInfo = Map<string, MemoEntry>;
+
+export interface PExpr {
+  eval(matcher: Matcher): CstNode;
+}
+
+class Matcher {
+  input: string;
+  pos: number;
+  memoTable: PosInfo[];
+
+  constructor(public rules: { [k: string]: PExpr }) {}
+
+  match(input: string) {
     this.input = input;
     this.pos = 0;
     this.memoTable = [];
@@ -14,12 +31,12 @@ export class Matcher {
     return null;
   }
 
-  hasMemoizedResult(ruleName) {
+  hasMemoizedResult(ruleName: string) {
     var col = this.memoTable[this.pos];
     return col && col.has(ruleName);
   }
 
-  memoizeResult(pos, ruleName, cst) {
+  memoizeResult(pos: number, ruleName: string, cst: CstNode) {
     var col = this.memoTable[pos];
     if (!col) {
       col = this.memoTable[pos] = new Map();
@@ -34,7 +51,7 @@ export class Matcher {
     }
   }
 
-  useMemoizedResult(ruleName) {
+  useMemoizedResult(ruleName: string) {
     var col = this.memoTable[this.pos];
     var result = col.get(ruleName);
     if (result.cst !== null) {
@@ -44,7 +61,7 @@ export class Matcher {
     return null;
   }
 
-  consume(c) {
+  consume(c: string) {
     if (this.input[this.pos] === c) {
       this.pos++;
       return true;
@@ -54,11 +71,9 @@ export class Matcher {
 }
 
 export class RuleApplication {
-  constructor(ruleName) {
-    this.ruleName = ruleName;
-  }
+  constructor(private ruleName: string) {}
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     var name = this.ruleName;
     if (matcher.hasMemoizedResult(name)) {
       return matcher.useMemoizedResult(name);
@@ -71,12 +86,10 @@ export class RuleApplication {
   }
 }
 
-export class Terminal {
-  constructor(str) {
-    this.str = str;
-  }
+class Terminal {
+  constructor(public str: string) {}
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     for (var i = 0; i < this.str.length; i++) {
       if (!matcher.consume(this.str[i])) {
         return null;
@@ -88,12 +101,12 @@ export class Terminal {
 
 // Matches a single character within a character range.
 export class Range {
-  constructor(start, end) {
-    this.start = start;
-    this.end = end;
-  }
+  constructor(
+    public start: string,
+    public end: string,
+  ) {}
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     const nextChar = matcher.input[matcher.pos];
     if (this.start <= nextChar && nextChar <= this.end) {
       matcher.pos++;
@@ -103,12 +116,10 @@ export class Range {
   }
 }
 
-export class Choice {
-  constructor(exps) {
-    this.exps = exps;
-  }
+class Choice {
+  constructor(public exps: PExpr[]) {}
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     var origPos = matcher.pos;
     for (var i = 0; i < this.exps.length; i++) {
       matcher.pos = origPos;
@@ -121,12 +132,12 @@ export class Choice {
   }
 }
 
-export class Sequence {
-  constructor(exps) {
+class Sequence {
+  constructor(public exps: PExpr[]) {
     this.exps = exps;
   }
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     var ans = [];
     for (var i = 0; i < this.exps.length; i++) {
       var exp = this.exps[i];
@@ -142,27 +153,23 @@ export class Sequence {
   }
 }
 
-export class Not {
-  constructor(exp) {
-    this.exp = exp;
-  }
+class Not {
+  constructor(public exp: PExpr) {}
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     var origPos = matcher.pos;
     if (this.exp.eval(matcher) === null) {
       matcher.pos = origPos;
-      return true;
+      return [];
     }
     return null;
   }
 }
 
 export class Repetition {
-  constructor(exp) {
-    this.exp = exp;
-  }
+  constructor(public exp: PExpr) {}
 
-  eval(matcher) {
+  eval(matcher: Matcher): Result {
     var ans = [];
     while (true) {
       var origPos = matcher.pos;
@@ -177,3 +184,15 @@ export class Repetition {
     return ans;
   }
 }
+
+export default {
+  _: (value: string) => new Terminal(value),
+  app: (ruleName: string) => new RuleApplication(ruleName),
+  choice: (...exps: PExpr[]) => new Choice(exps),
+  lookahead: (exp: PExpr) => new Not(new Not(exp)),
+  matcher: (rules: { [k: string]: PExpr }) => new Matcher(rules),
+  not: (exp: PExpr) => new Not(exp),
+  range: (start: string, end: string) => new Range(start, end),
+  rep: (exp: PExpr) => new Repetition(exp),
+  seq: (...exps: PExpr[]) => new Sequence(exps),
+};

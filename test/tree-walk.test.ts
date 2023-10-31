@@ -2,8 +2,8 @@ import fs from "node:fs";
 import { test } from "uvu";
 import * as assert from "uvu/assert";
 
-import { ES5 } from "../src/es5.js";
-import * as treeWalk from "../src/tree-walk.js";
+import { ES5 } from "../src/es5.ts";
+import treeWalk from "../src/tree-walk.ts";
 
 const jqueryUrl = new URL("data/jquery-3.2.1.js", import.meta.url);
 

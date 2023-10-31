@@ -13,3 +13,7 @@ export interface ParserFactory<T, R> {
 export interface Matcher<R> {
   match: (input: string, startRule?: string) => R;
 }
+
+type CstNode = string | CstNode[];
+
+export { CstNode };
