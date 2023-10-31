@@ -9,7 +9,7 @@ import { ParserFactory } from "./types.js";
       var matcher = es5(require('./standard'));
       var incMatcher = es5(require('./incremental'));
  */
-export function ES5<T, R>(factory: ParserFactory<T, R>) {
+export function ES5<T>(factory: ParserFactory<T>) {
   const { _, app, choice, lookahead, matcher, not, range, rep, seq } = factory;
   const lexIgnored = (exp: T) => exp;
 

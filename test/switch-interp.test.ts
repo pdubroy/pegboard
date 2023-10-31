@@ -26,7 +26,7 @@ test("rule application", () => {
     any: range("\u0000", "a"),
   });
   assert.ok(g.match("a"));
-  assert.is(g.match("b"), false);
+  assert.is(g.match("b"), null);
 
   const g2 = matcher({
     start: app("next"),

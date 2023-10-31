@@ -1,6 +1,4 @@
-import { CstNode } from "./types.ts";
-
-type Result = CstNode | null;
+import { CstNode, Result } from "./types.ts";
 
 interface MemoEntry {
   cst: Result;

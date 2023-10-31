@@ -1,6 +1,4 @@
-import { CstNode } from "./types.ts";
-
-export type Result = CstNode | false;
+import { Result } from "./types.ts";
 
 export interface PExpr {
   toBytecode(ruleIndices: Map<string, number>): number[];
@@ -89,17 +87,17 @@ class Matcher {
     this.compiledRules = [];
     for (const ruleName in rules) {
       const bytes = ensureSeq(rules[ruleName]).toBytecode(ruleIndexByName);
-      const idx = ruleIndexByName.get(ruleName);
+      const idx = checkNotNull(ruleIndexByName.get(ruleName));
       this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
     }
-    this.startRuleIndex = ruleIndexByName.get("start");
+    this.startRuleIndex = checkNotNull(ruleIndexByName.get("start"));
     this.textDecoder = new TextDecoder();
   }
 
   match(input: string, startRule = "start"): Result {
     let pos = 0;
 
-    this.startRuleIndex = this.ruleIndexByName.get(startRule);
+    this.startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
 
     const returnStack: Result[] = [];
     const posStack: number[] = [];
@@ -133,7 +131,7 @@ class Matcher {
             let ret: Result = str;
             for (let i = 0; i < str.length; i++) {
               if (input[pos++] !== str[i]) {
-                ret = false;
+                ret = null;
                 pos = origPos;
                 break;
               }
@@ -148,7 +146,7 @@ class Matcher {
               pos++;
               returnStack.push(String.fromCodePoint(nextCp));
             } else {
-              returnStack.push(false);
+              returnStack.push(null);
             }
             break;
           case instr.app:
@@ -165,7 +163,7 @@ class Matcher {
             break;
           case instr.restorePosCond:
             const prevPos = checkNotNull(posStack.pop());
-            if (returnStack.at(-1) === false) {
+            if (returnStack.at(-1) === null) {
               pos = prevPos;
               returnStack.splice(-2, 1); // Throw away result
             }
@@ -177,7 +175,7 @@ class Matcher {
               (currRule[ip++] << 8) |
               (currRule[ip++] << 16) |
               (currRule[ip++] << 24);
-            let cond = returnStack.at(-1) === false;
+            let cond = returnStack.at(-1) === null;
             if (op === instr.jumpIfSucceeded) cond = !cond;
             if (cond) ip += disp;
             break;
@@ -192,13 +190,13 @@ class Matcher {
             (returnStack.at(-2) as any[]).push(returnStack.pop());
             break;
           case instr.clearResult:
-            checkNotNull(returnStack.pop());
+            returnStack.pop();
             break;
           case instr.fail:
-            returnStack.push(false);
+            returnStack.push(null);
             break;
           case instr.not:
-            returnStack.push(checkNotNull(returnStack.pop()) ? false : []);
+            returnStack.push(returnStack.pop() ? null : []);
             break;
           case instr.debug1:
             progress.push(pos);
@@ -221,7 +219,7 @@ class Matcher {
     }
     assert(posStack.length === 0, "too much on pos stack");
     assert(returnStack.length === 1, "too much on return stack");
-    return pos >= input.length ? returnStack[0] : false;
+    return pos >= input.length ? returnStack[0] : null;
   }
 }
 
@@ -251,8 +249,8 @@ class Range {
   ) {}
 
   toBytecode() {
-    const startCp = this.start.codePointAt(0);
-    const endCp = this.end.codePointAt(0);
+    const startCp = checkNotNull(this.start.codePointAt(0));
+    const endCp = checkNotNull(this.end.codePointAt(0));
     assert(startCp <= 0xffff, `range start too high: ${startCp}`);
     assert(endCp <= 0xffff, `range end too high: ${endCp}`);
     return [instr.range, ...i16(startCp), ...i16(endCp)];
