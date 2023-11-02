@@ -1,36 +1,39 @@
-import { run, bench, group } from 'mitata';
-import fs from 'node:fs'
+import { run, bench, group } from "mitata";
+import fs from "node:fs";
 
 import { ES5 } from "../src/es5.ts";
 import switchFact from "../src/switch-interp.ts";
 import treeWalkFact from "../src/tree-walk.ts";
 
-const es5Switch = ES5(switchFact)
-const es5TreeWalk = ES5(treeWalkFact)
+const es5Switch = ES5(switchFact);
+const es5TreeWalk = ES5(treeWalkFact);
 
 const sources = {
   jquery: readTestData("jquery-3.2.1.js"),
   react: readTestData("react-15.5.4.js"),
   underscore: readTestData("underscore-1.8.3.js"),
-}
+};
 
 function readTestData(name: string) {
-  return fs.readFileSync(new URL(`../test/data/${name}`, import.meta.url), 'utf-8')
+  return fs.readFileSync(
+    new URL(`../test/data/${name}`, import.meta.url),
+    "utf-8",
+  );
 }
 
-group('jquery', () => {
-  bench('AST interp', () => es5TreeWalk.match(sources.jquery));
-  bench('bytecode interp (switch)', () => es5Switch.match(sources.jquery));
+group("jquery", () => {
+  bench("AST interp", () => es5TreeWalk.match(sources.jquery));
+  bench("bytecode interp (switch)", () => es5Switch.match(sources.jquery));
 });
 
-group('react', () => {
-  bench('AST interp', () => es5TreeWalk.match(sources.react));
-  bench('bytecode interp (switch)', () => es5Switch.match(sources.react));
+group("react", () => {
+  bench("AST interp", () => es5TreeWalk.match(sources.react));
+  bench("bytecode interp (switch)", () => es5Switch.match(sources.react));
 });
 
-group('underscore', () => {
-  bench('AST interp', () => es5TreeWalk.match(sources.underscore));
-  bench('bytecode interp (switch)', () => es5Switch.match(sources.underscore));
+group("underscore", () => {
+  bench("AST interp", () => es5TreeWalk.match(sources.underscore));
+  bench("bytecode interp (switch)", () => es5Switch.match(sources.underscore));
 });
 
 await run({
