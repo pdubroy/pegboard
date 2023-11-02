@@ -9,7 +9,7 @@ const es5 = ES5(Factory);
 const { _, app, choice, matcher, not, range, rep, seq } = Factory;
 
 // This works but currently takes a long time!
-test.skip("ES5 basics", () => {
+test("ES5 basics", () => {
   assert.ok(es5.match("3", "logicalANDExpression"));
 });
 

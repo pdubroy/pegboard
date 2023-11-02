@@ -1,3 +1,4 @@
+import { MemoTable } from "./MemoTable.ts";
 import { Result } from "./types.ts";
 
 export interface PExpr {
@@ -101,9 +102,11 @@ class Matcher {
 
     const returnStack: Result[] = [];
     const posStack: number[] = [];
-    const ruleStack: [Uint8Array, number][] = [];
+    const ruleStack: [number, number][] = [];
     let currRule = new Uint8Array([instr.app, this.startRuleIndex]);
     let ip = 0;
+
+    const memoTable = new MemoTable<number>();
 
     // const logRuleEnter = (idx: number) => {
     //   const indent = new Array(ruleStack.length).join(" ");
@@ -152,11 +155,18 @@ class Matcher {
           case instr.app:
             // TODO: Use LEB128 encoding to support >256 rules.
             const ruleIdx = currRule[ip++];
-            // ruleIdxs.push(ruleIdx);
-            ruleStack.push([currRule, ip]);
-            currRule = this.compiledRules[ruleIdx];
-            ip = 0;
-            //            logRuleEnter(ruleIdx);
+            if (memoTable.has(pos, ruleIdx)) {
+              const { cst, nextPos } = memoTable.getResult(pos, ruleIdx);
+              returnStack.push(cst);
+              pos = nextPos;
+            } else {
+              // ruleIdxs.push(ruleIdx);
+              ruleStack.push([ruleIdx, ip]);
+              posStack.push(origPos);
+              currRule = this.compiledRules[ruleIdx];
+              ip = 0;
+              //            logRuleEnter(ruleIdx);
+            }
             break;
           case instr.restorePos:
             pos = checkNotNull(posStack.pop());
@@ -211,11 +221,23 @@ class Matcher {
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
       } // end of rule body
-      if (ruleStack.length === 1) {
+      const memoPos = posStack.pop();
+      if (ruleStack.length <= 1) {
         break;
       }
       // ruleIdxs.pop();
-      [currRule, ip] = ruleStack.pop();
+      const [ruleIdx, savedIp] = ruleStack.pop();
+      const [outerRuleIdx] = ruleStack.at(-1);
+
+      // Memoize the result.
+      memoTable.memoizeResult(memoPos, ruleIdx, {
+        cst: returnStack.at(-1),
+        nextPos: pos,
+      });
+
+      // Restore control to the outer rule.
+      ip = savedIp;
+      currRule = this.compiledRules[outerRuleIdx];
     }
     assert(posStack.length === 0, "too much on pos stack");
     assert(returnStack.length === 1, "too much on return stack");
