@@ -1,9 +1,5 @@
 import { CstNode, Result } from "./types.ts";
-
-interface MemoEntry {
-  cst: Result;
-  nextPos?: number;
-}
+import { MemoEntry } from "./MemoTable.ts";
 
 type PosInfo = Map<string, MemoEntry>;
 
