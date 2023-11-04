@@ -1,5 +1,5 @@
-import { MemoTable } from "./MemoTable.ts";
-import { Result } from "./types.ts";
+import { MemoTable } from "./MemoTable.js";
+import { Result } from "./types.js";
 
 export interface PExpr {
   toBytecode(ruleIndices: Map<string, number>): number[];
@@ -43,32 +43,27 @@ function sizeInBytes(frag: number[]) {
   return frag.flat(Infinity).length;
 }
 
-const instr = {
-  app: 1,
-  terminal: 2,
-  range: 3,
-  jumpIfFailed: 9,
-  jumpIfSucceeded: 10,
-  jump: 11,
-  clearResult: 12,
-  newResultList: 13,
-  appendResult: 14,
-  savePos: 15,
-  restorePos: 16,
-  restorePosCond: 17,
-  fail: 18,
-  not: 19,
-  debug1: 20,
-  debug2: 21,
-};
+const OP_APP = 1;
+const OP_TERMINAL = 2;
+const OP_RANGE = 3;
+const OP_JUMP_IF_FAILED = 9;
+const OP_JUMP_IF_SUCCEEDED = 10;
+const OP_JUMP = 11;
+const OP_CLEAR_RESULT = 12;
+const OP_NEW_RESULT_LIST = 13;
+const OP_APPEND_RESULT = 14;
+const OP_SAVE_POS = 15;
+const OP_RESTORE_POS = 16;
+const OP_RESTORE_POS_COND = 17;
+const OP_FAIL = 18;
+const OP_NOT = 19;
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
-const jumpFragSize = sizeInBytes([instr.jump, ...i32(0)]);
+const jumpFragSize = sizeInBytes([OP_JUMP, ...i32(0)]);
 
 class Matcher {
   compiledRules: Uint8Array[];
   startRuleIndex: number;
-  textDecoder: TextDecoder;
 
   ruleIndexByName: Map<string, number>;
   ruleNameByIndex: Map<number, string>;
@@ -91,20 +86,20 @@ class Matcher {
       const idx = checkNotNull(ruleIndexByName.get(ruleName));
       this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
     }
-    this.startRuleIndex = checkNotNull(ruleIndexByName.get("start"));
-    this.textDecoder = new TextDecoder();
   }
 
   match(input: string, startRule = "start"): Result {
     let pos = 0;
 
-    this.startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
+    const startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
+    const textDecoder = new TextDecoder();
 
     const returnStack: Result[] = [];
     const posStack: number[] = [];
     const ruleStack: [number, number][] = [];
-    let currRule = new Uint8Array([instr.app, this.startRuleIndex]);
+    let currRule = new Uint8Array([OP_APP, startRuleIndex]);
     let ip = 0;
+    const inputLen = input.length
 
     const memoTable = new MemoTable<number>();
 
@@ -116,24 +111,22 @@ class Matcher {
     // };
     // logRuleEnter(this.startRuleIndex);
 
-    const progress: number[] = [];
     //    let ruleIdxs: number[] = [this.startRuleIndex];
 
-    while (true) {
+    do {
       while (ip < currRule.length) {
         const op = currRule[ip++];
         const origPos = pos;
         switch (op) {
-          case instr.terminal:
+          case OP_TERMINAL:
             const len = currRule[ip++];
-            const str = this.textDecoder.decode(
+            const str = textDecoder.decode(
               new Uint8Array(currRule.slice(ip, ip + len)),
             );
             ip += len;
-
             let ret: Result = str;
             for (let i = 0; i < str.length; i++) {
-              if (input[pos++] !== str[i]) {
+              if (pos >= inputLen || input[pos++] !== str[i]) {
                 ret = null;
                 pos = origPos;
                 break;
@@ -141,10 +134,10 @@ class Matcher {
             }
             returnStack.push(ret);
             break;
-          case instr.range:
+          case OP_RANGE:
             const startCp = currRule[ip++] | (currRule[ip++] << 8);
             const endCp = currRule[ip++] | (currRule[ip++] << 8);
-            const nextCp = input.codePointAt(pos);
+            const nextCp = pos < inputLen ? input.codePointAt(pos) : -1
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
               returnStack.push(String.fromCodePoint(nextCp));
@@ -152,7 +145,7 @@ class Matcher {
               returnStack.push(null);
             }
             break;
-          case instr.app:
+          case OP_APP:
             // TODO: Use LEB128 encoding to support >256 rules.
             const ruleIdx = currRule[ip++];
             if (memoTable.has(pos, ruleIdx)) {
@@ -168,66 +161,60 @@ class Matcher {
               //            logRuleEnter(ruleIdx);
             }
             break;
-          case instr.restorePos:
+          case OP_RESTORE_POS:
             pos = checkNotNull(posStack.pop());
             break;
-          case instr.restorePosCond:
+          case OP_RESTORE_POS_COND:
             const prevPos = checkNotNull(posStack.pop());
             if (returnStack.at(-1) === null) {
               pos = prevPos;
               returnStack.splice(-2, 1); // Throw away result
             }
             break;
-          case instr.jumpIfFailed:
-          case instr.jumpIfSucceeded:
+          case OP_JUMP_IF_FAILED: {
             let disp =
               currRule[ip++] |
               (currRule[ip++] << 8) |
               (currRule[ip++] << 16) |
               (currRule[ip++] << 24);
-            let cond = returnStack.at(-1) === null;
-            if (op === instr.jumpIfSucceeded) cond = !cond;
-            if (cond) ip += disp;
+            if (returnStack.at(-1) === null) ip += disp;
             break;
-          case instr.newResultList:
+          }
+          case OP_JUMP_IF_SUCCEEDED: {
+            let disp =
+              currRule[ip++] |
+              (currRule[ip++] << 8) |
+              (currRule[ip++] << 16) |
+              (currRule[ip++] << 24);
+            if (returnStack.at(-1) !== null) ip += disp;
+            break;
+          }
+          case OP_NEW_RESULT_LIST:
             returnStack.push([]);
             break;
-          case instr.savePos:
+          case OP_SAVE_POS:
             posStack.push(pos);
             break;
-          case instr.appendResult:
+          case OP_APPEND_RESULT:
             // TODO: Can we avoid the cast here?
             (returnStack.at(-2) as any[]).push(returnStack.pop());
             break;
-          case instr.clearResult:
+          case OP_CLEAR_RESULT:
             returnStack.pop();
             break;
-          case instr.fail:
+          case OP_FAIL:
             returnStack.push(null);
             break;
-          case instr.not:
+          case OP_NOT:
             returnStack.push(returnStack.pop() ? null : []);
-            break;
-          case instr.debug1:
-            progress.push(pos);
-            break;
-          case instr.debug2:
-            const beforePos = progress.pop();
-            if (pos === beforePos && returnStack.at(-1)) {
-              throw new Error("possible infinite loop");
-            }
             break;
           default:
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
       } // end of rule body
-      const memoPos = posStack.pop();
-      if (ruleStack.length <= 1) {
-        break;
-      }
+      const memoPos = checkNotNull(posStack.pop());
       // ruleIdxs.pop();
       const [ruleIdx, savedIp] = ruleStack.pop();
-      const [outerRuleIdx] = ruleStack.at(-1);
 
       // Memoize the result.
       memoTable.memoizeResult(memoPos, ruleIdx, {
@@ -235,13 +222,17 @@ class Matcher {
         nextPos: pos,
       });
 
-      // Restore control to the outer rule.
-      ip = savedIp;
-      currRule = this.compiledRules[outerRuleIdx];
-    }
+      if (ruleStack.length >= 1) {
+        const [outerRuleIdx] = ruleStack.at(-1);
+
+        // Restore control to the outer rule.
+        ip = savedIp;
+        currRule = this.compiledRules[outerRuleIdx];
+      }
+    } while (ruleStack.length >= 1)
     assert(posStack.length === 0, "too much on pos stack");
     assert(returnStack.length === 1, "too much on return stack");
-    return pos >= input.length ? returnStack[0] : null;
+    return pos >= inputLen ? returnStack[0] : null;
   }
 }
 
@@ -250,7 +241,7 @@ class RuleApplication {
 
   toBytecode(ruleIndices: Map<string, number>) {
     const idx = ruleIndices.get(this.ruleName);
-    return [instr.app, idx];
+    return [OP_APP, idx];
   }
 }
 
@@ -260,7 +251,7 @@ class Terminal {
   toBytecode() {
     const utf8Bytes = new TextEncoder().encode(this.str);
     assert(utf8Bytes.length <= 256, "max terminal length is 256");
-    return [instr.terminal, utf8Bytes.length, ...utf8Bytes];
+    return [OP_TERMINAL, utf8Bytes.length, ...utf8Bytes];
   }
 }
 
@@ -275,7 +266,7 @@ class Range {
     const endCp = checkNotNull(this.end.codePointAt(0));
     assert(startCp <= 0xffff, `range start too high: ${startCp}`);
     assert(endCp <= 0xffff, `range end too high: ${endCp}`);
-    return [instr.range, ...i16(startCp), ...i16(endCp)];
+    return [OP_RANGE, ...i16(startCp), ...i16(endCp)];
   }
 }
 
@@ -287,7 +278,7 @@ class Choice {
       e.toBytecode(ruleIndices).flat(Infinity),
     );
 
-    const bytes = [instr.fail];
+    const bytes = [OP_FAIL];
 
     // Walk the fragments in reverse order so we can easily calculate
     // jump displacement.
@@ -295,9 +286,9 @@ class Choice {
       const disp = bytes.length + 1;
       bytes.unshift(
         ...frag,
-        instr.jumpIfSucceeded,
+        OP_JUMP_IF_SUCCEEDED,
         ...i32(disp),
-        instr.clearResult,
+        OP_CLEAR_RESULT,
       );
     }
     return bytes;
@@ -309,7 +300,7 @@ class Sequence {
 
   toBytecode(ruleIndices: Map<string, number>) {
     if (this.exps.length === 0) {
-      return [instr.newResultList];
+      return [OP_NEW_RESULT_LIST];
     }
 
     const fragments = this.exps.map((e) =>
@@ -322,16 +313,10 @@ class Sequence {
     // jump displacement.
     for (const frag of fragments.reverse()) {
       const disp: number = bytes.length + 1;
-      bytes.unshift(
-        ...frag,
-        instr.jumpIfFailed,
-        ...i32(disp),
-        instr.appendResult,
-      );
+      bytes.unshift(...frag, OP_JUMP_IF_FAILED, ...i32(disp), OP_APPEND_RESULT);
     }
-    bytes.unshift(instr.newResultList, instr.savePos);
-
-    bytes.push(instr.restorePosCond); // This is the jump target
+    bytes.unshift(OP_NEW_RESULT_LIST, OP_SAVE_POS);
+    bytes.push(OP_RESTORE_POS_COND); // This is the jump target
 
     return bytes;
   }
@@ -342,10 +327,10 @@ class Not {
 
   toBytecode(ruleIndices: Map<string, number>) {
     return [
-      instr.savePos,
+      OP_SAVE_POS,
       ...this.exp.toBytecode(ruleIndices),
-      instr.not,
-      instr.restorePos,
+      OP_NOT,
+      OP_RESTORE_POS,
     ];
   }
 }
@@ -357,24 +342,22 @@ class Repetition {
 
   toBytecode(ruleIndices: Map<string, number>) {
     const loopBody = [
-      instr.debug1,
       ...this.exp.toBytecode(ruleIndices),
-      instr.debug2,
-      instr.jumpIfFailed,
+      OP_JUMP_IF_FAILED,
       ...i32(jumpFragSize + 1),
-      instr.appendResult,
+      OP_APPEND_RESULT,
     ];
 
     const loop = [
       ...loopBody,
       // TODO: This could be an unconditional jump.
-      instr.jumpIfSucceeded,
+      OP_JUMP_IF_SUCCEEDED,
       // Displacement is relative to the instruction *after* the jump, so
       // we need to account for the jump itself when jumping backwards.
       ...i32(-sizeInBytes(loopBody) - jumpFragSize),
     ];
 
-    return [instr.newResultList, ...loop, instr.clearResult];
+    return [OP_NEW_RESULT_LIST, ...loop, OP_CLEAR_RESULT];
   }
 }
 

@@ -1,16 +1,25 @@
+import fs from "node:fs";
 import { test } from "uvu";
 import * as assert from "uvu/assert";
 
-import { ES5 } from "../src/es5.ts";
-import Factory from "../src/switch-interp.ts";
+import { ES5 } from "../src/es5.js";
+import Factory from "../src/switch-interp.js";
 
 const es5 = ES5(Factory);
+
+const jqueryUrl = new URL("data/jquery-3.2.1.js", import.meta.url);
 
 const { _, app, choice, matcher, not, range, rep, seq } = Factory;
 
 // This works but currently takes a long time!
 test("ES5 basics", () => {
   assert.ok(es5.match("3", "logicalANDExpression"));
+});
+
+test("parsing jquery", () => {
+  const start = performance.now();
+  assert.ok(es5.match(fs.readFileSync(jqueryUrl, "utf-8")));
+  console.log(`${performance.now() - start}ms`);
 });
 
 test("range", () => {

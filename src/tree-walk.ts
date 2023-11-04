@@ -1,5 +1,5 @@
-import { CstNode, Result } from "./types.ts";
-import { MemoEntry } from "./MemoTable.ts";
+import { CstNode, Result } from "./types.js";
+import { MemoEntry } from "./MemoTable.js";
 
 type PosInfo = Map<string, MemoEntry>;
 

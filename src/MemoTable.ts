@@ -1,4 +1,4 @@
-import { Result } from "./types.ts";
+import { Result } from "./types.js";
 
 export interface MemoEntry {
   cst: Result;
