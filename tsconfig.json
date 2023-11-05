@@ -8,5 +8,5 @@
     "noImplicitAny": true,
     "noUnusedLocals": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["**/*.ts"]
 }
