@@ -1,9 +1,9 @@
 import { run, bench, group } from "mitata";
 import fs from "node:fs";
 
-import { ES5 } from "../src/es5.ts";
-import switchFact from "../src/switch-interp.ts";
-import treeWalkFact from "../src/tree-walk.ts";
+import { ES5 } from "../src/es5.js";
+import switchFact from "../src/switch-interp.js";
+import treeWalkFact from "../src/tree-walk.js";
 
 const es5Switch = ES5(switchFact);
 const es5TreeWalk = ES5(treeWalkFact);
@@ -20,6 +20,10 @@ function readTestData(name: string) {
     "utf-8",
   );
 }
+
+// Warmup
+es5TreeWalk.match("var x = 3");
+es5Switch.match("var x = 3");
 
 group("jquery", () => {
   bench("AST interp", () => es5TreeWalk.match(sources.jquery));

@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "allowImportingTsExtensions": true,
+    "outDir": "build",
     "module": "nodenext",
     "target": "esnext",
     "moduleResolution": "nodenext",
