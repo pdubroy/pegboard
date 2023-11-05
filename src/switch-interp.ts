@@ -92,14 +92,13 @@ class Matcher {
     let pos = 0;
 
     const startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
-    const textDecoder = new TextDecoder();
 
     const returnStack: Result[] = [];
     const posStack: number[] = [];
     const ruleStack: [number, number][] = [];
     let currRule = new Uint8Array([OP_APP, startRuleIndex]);
     let ip = 0;
-    const inputLen = input.length
+    const inputLen = input.length;
 
     const memoTable = new MemoTable<number>();
 
@@ -119,25 +118,27 @@ class Matcher {
         const origPos = pos;
         switch (op) {
           case OP_TERMINAL:
-            const len = currRule[ip++];
-            const str = textDecoder.decode(
-              new Uint8Array(currRule.slice(ip, ip + len)),
-            );
-            ip += len;
-            let ret: Result = str;
-            for (let i = 0; i < str.length; i++) {
-              if (pos >= inputLen || input[pos++] !== str[i]) {
+            // TODO: Cache the string to avoid reconstructing it every time?
+            const strLen = currRule[ip++];
+            const bytes = new Uint8Array(currRule.slice(ip, ip + strLen * 2));
+            const codes = new Uint16Array(bytes.buffer);
+            ip += strLen * 2;
+            let ret: Result = "";
+            for (let i = 0; i < strLen; i++) {
+              const s = String.fromCharCode(codes[i]);
+              if (pos >= inputLen || input[pos++] !== s) {
                 ret = null;
                 pos = origPos;
                 break;
               }
+              ret += s;
             }
             returnStack.push(ret);
             break;
           case OP_RANGE:
             const startCp = currRule[ip++] | (currRule[ip++] << 8);
             const endCp = currRule[ip++] | (currRule[ip++] << 8);
-            const nextCp = pos < inputLen ? input.codePointAt(pos) : -1
+            const nextCp = pos < inputLen ? input.codePointAt(pos) : -1;
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
               returnStack.push(String.fromCodePoint(nextCp));
@@ -229,7 +230,7 @@ class Matcher {
         ip = savedIp;
         currRule = this.compiledRules[outerRuleIdx];
       }
-    } while (ruleStack.length >= 1)
+    } while (ruleStack.length >= 1);
     assert(posStack.length === 0, "too much on pos stack");
     assert(returnStack.length === 1, "too much on return stack");
     return pos >= inputLen ? returnStack[0] : null;
@@ -249,9 +250,14 @@ class Terminal {
   constructor(public str: string) {}
 
   toBytecode() {
-    const utf8Bytes = new TextEncoder().encode(this.str);
-    assert(utf8Bytes.length <= 256, "max terminal length is 256");
-    return [OP_TERMINAL, utf8Bytes.length, ...utf8Bytes];
+    const { str } = this;
+    const codes = new Uint16Array(str.length);
+    for (let i = 0; i < str.length; i++) {
+      codes[i] = str[i].charCodeAt(0);
+    }
+    const bytes = Array.from(new Uint8Array(codes.buffer));
+    assert(codes.length <= 256, "max terminal length is 256");
+    return [OP_TERMINAL, codes.length, ...bytes];
   }
 }
 
