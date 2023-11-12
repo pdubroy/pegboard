@@ -46,17 +46,18 @@ function sizeInBytes(frag: number[]) {
 const OP_APP = 1;
 const OP_TERMINAL = 2;
 const OP_RANGE = 3;
-const OP_JUMP_IF_FAILED = 9;
-const OP_JUMP_IF_SUCCEEDED = 10;
-const OP_JUMP = 11;
-const OP_CLEAR_RESULT = 12;
-const OP_NEW_RESULT_LIST = 13;
-const OP_APPEND_RESULT = 14;
-const OP_SAVE_POS = 15;
-const OP_RESTORE_POS = 16;
-const OP_RESTORE_POS_COND = 17;
-const OP_FAIL = 18;
-const OP_NOT = 19;
+const OP_JUMP_IF_FAILED = 4;
+const OP_JUMP_IF_SUCCEEDED = 5;
+const OP_JUMP = 6;
+const OP_RETURN = 7;
+const OP_RETURN_COND = 8;
+const OP_NEW_RESULT_LIST = 9;
+const OP_APPEND_RESULT = 10;
+const OP_SAVE_POS = 11;
+const OP_RESTORE_POS = 12;
+const OP_RESTORE_POS_COND = 13;
+const OP_FAIL = 14;
+const OP_NOT = 15;
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
 const jumpFragSize = sizeInBytes([OP_JUMP, ...i32(0)]);
@@ -99,6 +100,7 @@ class Matcher {
     let currRule = new Uint8Array([OP_APP, startRuleIndex]);
     let ip = 0;
     const inputLen = input.length;
+    let result: Result;
 
     const memoTable = new MemoTable<number>();
 
@@ -123,17 +125,16 @@ class Matcher {
             const bytes = new Uint8Array(currRule.slice(ip, ip + strLen * 2));
             const codes = new Uint16Array(bytes.buffer);
             ip += strLen * 2;
-            let ret: Result = "";
+            result = "";
             for (let i = 0; i < strLen; i++) {
               const s = String.fromCharCode(codes[i]);
               if (pos >= inputLen || input[pos++] !== s) {
-                ret = null;
+                result = null;
                 pos = origPos;
                 break;
               }
-              ret += s;
+              result += s;
             }
-            returnStack.push(ret);
             break;
           case OP_RANGE:
             const startCp = currRule[ip++] | (currRule[ip++] << 8);
@@ -141,9 +142,9 @@ class Matcher {
             const nextCp = pos < inputLen ? input.codePointAt(pos) : -1;
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
-              returnStack.push(String.fromCodePoint(nextCp));
+              result = String.fromCodePoint(nextCp);
             } else {
-              returnStack.push(null);
+              result = null;
             }
             break;
           case OP_APP:
@@ -151,7 +152,7 @@ class Matcher {
             const ruleIdx = currRule[ip++];
             if (memoTable.has(pos, ruleIdx)) {
               const { cst, nextPos } = memoTable.getResult(pos, ruleIdx);
-              returnStack.push(cst);
+              result = cst;
               pos = nextPos;
             } else {
               // ruleIdxs.push(ruleIdx);
@@ -167,9 +168,8 @@ class Matcher {
             break;
           case OP_RESTORE_POS_COND:
             const prevPos = checkNotNull(posStack.pop());
-            if (returnStack.at(-1) === null) {
+            if (result === null) {
               pos = prevPos;
-              returnStack.splice(-2, 1); // Throw away result
             }
             break;
           case OP_JUMP_IF_FAILED: {
@@ -178,7 +178,7 @@ class Matcher {
               (currRule[ip++] << 8) |
               (currRule[ip++] << 16) |
               (currRule[ip++] << 24);
-            if (returnStack.at(-1) === null) ip += disp;
+            if (result === null) ip += disp;
             break;
           }
           case OP_JUMP_IF_SUCCEEDED: {
@@ -187,27 +187,31 @@ class Matcher {
               (currRule[ip++] << 8) |
               (currRule[ip++] << 16) |
               (currRule[ip++] << 24);
-            if (returnStack.at(-1) !== null) ip += disp;
+            if (result !== null) ip += disp;
             break;
           }
           case OP_NEW_RESULT_LIST:
             returnStack.push([]);
+            break;
+          case OP_RETURN:
+            result = returnStack.pop();
+            break;
+          case OP_RETURN_COND:
+            const outerResult = returnStack.pop();
+            result = result !== null ? outerResult : null;
             break;
           case OP_SAVE_POS:
             posStack.push(pos);
             break;
           case OP_APPEND_RESULT:
             // TODO: Can we avoid the cast here?
-            (returnStack.at(-2) as any[]).push(returnStack.pop());
-            break;
-          case OP_CLEAR_RESULT:
-            returnStack.pop();
+            (returnStack.at(-1) as Result[]).push(result);
             break;
           case OP_FAIL:
-            returnStack.push(null);
+            result = null;
             break;
           case OP_NOT:
-            returnStack.push(returnStack.pop() ? null : []);
+            result = result ? null : [];
             break;
           default:
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
@@ -219,7 +223,7 @@ class Matcher {
 
       // Memoize the result.
       memoTable.memoizeResult(memoPos, ruleIdx, {
-        cst: returnStack.at(-1),
+        cst: result,
         nextPos: pos,
       });
 
@@ -232,8 +236,9 @@ class Matcher {
       }
     } while (ruleStack.length >= 1);
     assert(posStack.length === 0, "too much on pos stack");
-    assert(returnStack.length === 1, "too much on return stack");
-    return pos >= inputLen ? returnStack[0] : null;
+    assert(returnStack.length === 0, `too much on return stack ${returnStack}`);
+
+    return pos >= inputLen ? result : null;
   }
 }
 
@@ -289,13 +294,8 @@ class Choice {
     // Walk the fragments in reverse order so we can easily calculate
     // jump displacement.
     for (const frag of fragments.reverse()) {
-      const disp = bytes.length + 1;
-      bytes.unshift(
-        ...frag,
-        OP_JUMP_IF_SUCCEEDED,
-        ...i32(disp),
-        OP_CLEAR_RESULT,
-      );
+      const disp = bytes.length;
+      bytes.unshift(...frag, OP_JUMP_IF_SUCCEEDED, ...i32(disp));
     }
     return bytes;
   }
@@ -306,7 +306,7 @@ class Sequence {
 
   toBytecode(ruleIndices: Map<string, number>) {
     if (this.exps.length === 0) {
-      return [OP_NEW_RESULT_LIST];
+      return [OP_NEW_RESULT_LIST, OP_RETURN];
     }
 
     const fragments = this.exps.map((e) =>
@@ -323,6 +323,7 @@ class Sequence {
     }
     bytes.unshift(OP_NEW_RESULT_LIST, OP_SAVE_POS);
     bytes.push(OP_RESTORE_POS_COND); // This is the jump target
+    bytes.push(OP_RETURN_COND);
 
     return bytes;
   }
@@ -363,7 +364,7 @@ class Repetition {
       ...i32(-sizeInBytes(loopBody) - jumpFragSize),
     ];
 
-    return [OP_NEW_RESULT_LIST, ...loop, OP_CLEAR_RESULT];
+    return [OP_NEW_RESULT_LIST, ...loop, OP_RETURN];
   }
 }
 

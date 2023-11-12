@@ -17,9 +17,7 @@ test("ES5 basics", () => {
 });
 
 test("parsing jquery", () => {
-  const start = performance.now();
   assert.ok(es5.match(fs.readFileSync(jqueryUrl, "utf-8")));
-  console.log(`${performance.now() - start}ms`);
 });
 
 test("range", () => {
@@ -169,7 +167,7 @@ test("neg lookahead", () => {
   assert.not.ok(g.match("a"));
 });
 
-test("pos lookahead", () => {
+test("positive lookahead", () => {
   const g = matcher({
     start: seq(not(not(_("a"))), _("a")),
   });
