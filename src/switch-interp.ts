@@ -58,6 +58,7 @@ const OP_RESTORE_POS = 12;
 const OP_RESTORE_POS_COND = 13;
 const OP_FAIL = 14;
 const OP_NOT = 15;
+const OP_END = 16;
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
 const jumpFragSize = sizeInBytes([OP_JUMP, ...i32(0)]);
@@ -85,7 +86,7 @@ class Matcher {
     for (const ruleName in rules) {
       const bytes = ensureSeq(rules[ruleName]).toBytecode(ruleIndexByName);
       const idx = checkNotNull(ruleIndexByName.get(ruleName));
-      this.compiledRules[idx] = new Uint8Array(bytes.flat(Infinity));
+      this.compiledRules[idx] = new Uint8Array([...bytes.flat(Infinity), OP_END]);
     }
   }
 
@@ -104,18 +105,8 @@ class Matcher {
 
     const memoTable = new MemoTable<number>();
 
-    // const logRuleEnter = (idx: number) => {
-    //   const indent = new Array(ruleStack.length).join(" ");
-    //   const ruleName = this.ruleNameByIndex.get(idx);
-    //   if (ruleName === "unicodeCombiningMark") debugger;
-    //   console.log(indent + ruleName + ", pos = " + pos);
-    // };
-    // logRuleEnter(this.startRuleIndex);
-
-    //    let ruleIdxs: number[] = [this.startRuleIndex];
-
     do {
-      while (ip < currRule.length) {
+      while (currRule[ip] !== OP_END) {
         const op = currRule[ip++];
         const origPos = pos;
         switch (op) {
