@@ -119,124 +119,121 @@ class Matcher {
     let ip = this.ruleOffsetByIndex.get(startRuleIndex);
 
     while (true) {
-      while (bc[ip] !== OP_END) {
-        const op = bc[ip++];
-        const origPos = pos;
-        switch (op) {
-          case OP_APP:
-            // TODO: Use LEB128 encoding to support >256 rules.
-            const ruleIdx = bc[ip++];
-            if (memoTable.has(pos, ruleIdx)) {
-              const { cst, nextPos } = memoTable.getResult(pos, ruleIdx);
-              result = cst;
-              pos = nextPos;
-            } else {
-              ruleStack.push([ruleIdx, ip]);
-              posStack.push(origPos);
-              ip = this.ruleOffsetByIndex.get(ruleIdx);
-            }
-            break;
-          case OP_TERMINAL:
-            // TODO: Cache the string to avoid reconstructing it every time?
-            const strLen = bc[ip++];
-            const bytes = new Uint8Array(bc.slice(ip, ip + strLen * 2));
-            const codes = new Uint16Array(bytes.buffer);
-            ip += strLen * 2;
-            result = "";
-            for (let i = 0; i < strLen; i++) {
-              const s = String.fromCharCode(codes[i]);
-              if (pos >= inputLen || input[pos++] !== s) {
-                result = null;
-                pos = origPos;
-                break;
-              }
-              result += s;
-            }
-            break;
-          case OP_RANGE:
-            const startCp = bc[ip++] | (bc[ip++] << 8);
-            const endCp = bc[ip++] | (bc[ip++] << 8);
-            const nextCp = pos < inputLen ? input.codePointAt(pos) : -1;
-            if (startCp <= nextCp && nextCp <= endCp) {
-              pos++;
-              result = String.fromCodePoint(nextCp);
-            } else {
+      const op = bc[ip++];
+      const origPos = pos;
+      switch (op) {
+        case OP_APP:
+          // TODO: Use LEB128 encoding to support >256 rules.
+          const ruleIdx = bc[ip++];
+          if (memoTable.has(pos, ruleIdx)) {
+            const { cst, nextPos } = memoTable.getResult(pos, ruleIdx);
+            result = cst;
+            pos = nextPos;
+          } else {
+            ruleStack.push([ruleIdx, ip]);
+            posStack.push(origPos);
+            ip = this.ruleOffsetByIndex.get(ruleIdx);
+          }
+          break;
+        case OP_TERMINAL:
+          // TODO: Cache the string to avoid reconstructing it every time?
+          const strLen = bc[ip++];
+          const bytes = new Uint8Array(bc.slice(ip, ip + strLen * 2));
+          const codes = new Uint16Array(bytes.buffer);
+          ip += strLen * 2;
+          result = "";
+          for (let i = 0; i < strLen; i++) {
+            const s = String.fromCharCode(codes[i]);
+            if (pos >= inputLen || input[pos++] !== s) {
               result = null;
+              pos = origPos;
+              break;
             }
-            break;
-          case OP_JUMP_IF_FAILED: {
-            let disp =
-              bc[ip++] |
-              (bc[ip++] << 8) |
-              (bc[ip++] << 16) |
-              (bc[ip++] << 24);
-            if (result === null) ip += disp;
-            break;
+            result += s;
           }
-          case OP_JUMP_IF_SUCCEEDED: {
-            let disp =
-              bc[ip++] |
-              (bc[ip++] << 8) |
-              (bc[ip++] << 16) |
-              (bc[ip++] << 24);
-            if (result !== null) ip += disp;
-            break;
-          }
-          case OP_RETURN:
-            result = returnStack.pop();
-            break;
-          case OP_RETURN_COND:
-            const outerResult = returnStack.pop();
-            result = result !== null ? outerResult : null;
-            break;
-          case OP_NEW_RESULT_LIST:
-            returnStack.push([]);
-            break;
-          case OP_APPEND_RESULT:
-            // TODO: Can we avoid the cast here?
-            (returnStack.at(-1) as Result[]).push(result);
-            break;
-          case OP_SAVE_POS:
-            posStack.push(pos);
-            break;
-          case OP_RESTORE_POS:
-            pos = checkNotNull(posStack.pop());
-            break;
-          case OP_RESTORE_POS_COND:
-            const prevPos = checkNotNull(posStack.pop());
-            if (result === null) {
-              pos = prevPos;
-            }
-            break;
-          case OP_FAIL:
+          break;
+        case OP_RANGE:
+          const startCp = bc[ip++] | (bc[ip++] << 8);
+          const endCp = bc[ip++] | (bc[ip++] << 8);
+          const nextCp = pos < inputLen ? input.codePointAt(pos) : -1;
+          if (startCp <= nextCp && nextCp <= endCp) {
+            pos++;
+            result = String.fromCodePoint(nextCp);
+          } else {
             result = null;
-            break;
-          case OP_NOT:
-            result = result ? null : [];
-            break;
-          default:
-            throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
+          }
+          break;
+        case OP_JUMP_IF_FAILED: {
+          let disp =
+            bc[ip++] | (bc[ip++] << 8) | (bc[ip++] << 16) | (bc[ip++] << 24);
+          if (result === null) ip += disp;
+          break;
         }
-      } // end of rule body
-      if (ruleStack.length === 0) break;
+        case OP_JUMP_IF_SUCCEEDED: {
+          let disp =
+            bc[ip++] | (bc[ip++] << 8) | (bc[ip++] << 16) | (bc[ip++] << 24);
+          if (result !== null) ip += disp;
+          break;
+        }
+        case OP_RETURN:
+          result = returnStack.pop();
+          break;
+        case OP_RETURN_COND:
+          const outerResult = returnStack.pop();
+          result = result !== null ? outerResult : null;
+          break;
+        case OP_NEW_RESULT_LIST:
+          returnStack.push([]);
+          break;
+        case OP_APPEND_RESULT:
+          // TODO: Can we avoid the cast here?
+          (returnStack.at(-1) as Result[]).push(result);
+          break;
+        case OP_SAVE_POS:
+          posStack.push(pos);
+          break;
+        case OP_RESTORE_POS:
+          pos = checkNotNull(posStack.pop());
+          break;
+        case OP_RESTORE_POS_COND:
+          const prevPos = checkNotNull(posStack.pop());
+          if (result === null) {
+            pos = prevPos;
+          }
+          break;
+        case OP_FAIL:
+          result = null;
+          break;
+        case OP_NOT:
+          result = result ? null : [];
+          break;
+        case OP_END:
+          if (ruleStack.length === 0) {
+            assert(posStack.length === 0, "too much on pos stack");
+            assert(
+              returnStack.length === 0,
+              `too much on return stack ${returnStack}`,
+            );
+            console.log("here!");
+            return pos >= inputLen ? result : null;
+          }
+          const memoPos = checkNotNull(posStack.pop());
+          // ruleIdxs.pop();
+          const [memoIdx, savedIp] = ruleStack.pop();
 
-      const memoPos = checkNotNull(posStack.pop());
-      // ruleIdxs.pop();
-      const [ruleIdx, savedIp] = ruleStack.pop();
+          // Memoize the result.
+          memoTable.memoizeResult(memoPos, memoIdx, {
+            cst: result,
+            nextPos: pos,
+          });
 
-      // Memoize the result.
-      memoTable.memoizeResult(memoPos, ruleIdx, {
-        cst: result,
-        nextPos: pos,
-      });
-
-      // Restore control to the outer rule.
-      ip = savedIp;
+          // Restore control to the outer rule.
+          ip = savedIp;
+          break;
+        default:
+          throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
+      }
     }
-    assert(posStack.length === 0, "too much on pos stack");
-    assert(returnStack.length === 0, `too much on return stack ${returnStack}`);
-
-    return pos >= inputLen ? result : null;
   }
 }
 
