@@ -48,7 +48,7 @@ const OP_TERMINAL = 2;
 const OP_RANGE = 3;
 const OP_JUMP_IF_FAILED = 4;
 const OP_JUMP_IF_SUCCEEDED = 5;
-const OP_JUMP = 6;
+const OP_END = 6;
 const OP_RETURN = 7;
 const OP_RETURN_COND = 8;
 const OP_NEW_RESULT_LIST = 9;
@@ -58,17 +58,16 @@ const OP_RESTORE_POS = 12;
 const OP_RESTORE_POS_COND = 13;
 const OP_FAIL = 14;
 const OP_NOT = 15;
-const OP_END = 16;
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
-const jumpFragSize = sizeInBytes([OP_JUMP, ...i32(0)]);
+const jumpFragSize = sizeInBytes([OP_JUMP_IF_FAILED, ...i32(0)]);
 
 class Matcher {
-  compiledRules: Uint8Array[];
-  startRuleIndex: number;
+  bytecode: Uint8Array;
 
   ruleIndexByName: Map<string, number>;
   ruleNameByIndex: Map<number, string>;
+  ruleOffsetByIndex: Map<number, number>;
 
   constructor(rules: { [k: string]: PExpr }) {
     const ruleIndexByName = (this.ruleIndexByName = new Map(
@@ -82,38 +81,65 @@ class Matcher {
     const ensureSeq = (body: PExpr) =>
       body instanceof Sequence ? body : new Sequence([body]);
 
-    this.compiledRules = [];
+    const compiledRules: Uint8Array[] = [];
     for (const ruleName in rules) {
       const bytes = ensureSeq(rules[ruleName]).toBytecode(ruleIndexByName);
       const idx = checkNotNull(ruleIndexByName.get(ruleName));
-      this.compiledRules[idx] = new Uint8Array([...bytes.flat(Infinity), OP_END]);
+      compiledRules[idx] = new Uint8Array([...bytes.flat(Infinity), OP_END]);
+    }
+    this.ruleOffsetByIndex = new Map<number, number>();
+
+    let totalLen = compiledRules.reduce((acc, arr) => acc + arr.length, 0);
+    this.bytecode = new Uint8Array(totalLen);
+
+    let offset = 0;
+    for (const [i, arr] of compiledRules.entries()) {
+      this.ruleOffsetByIndex.set(i, offset);
+      this.bytecode.set(arr, offset);
+      offset += arr.length;
     }
   }
 
   match(input: string, startRule = "start"): Result {
     let pos = 0;
 
-    const startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
-
     const returnStack: Result[] = [];
     const posStack: number[] = [];
     const ruleStack: [number, number][] = [];
-    let currRule = new Uint8Array([OP_APP, startRuleIndex]);
-    let ip = 0;
     const inputLen = input.length;
     let result: Result;
 
     const memoTable = new MemoTable<number>();
+    const bc = this.bytecode;
 
-    do {
-      while (currRule[ip] !== OP_END) {
-        const op = currRule[ip++];
+    const startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
+
+    // ruleStack.push([startRuleIndex, 0]);
+    // posStack.push(pos);
+    let ip = this.ruleOffsetByIndex.get(startRuleIndex);
+
+    while (true) {
+      while (bc[ip] !== OP_END) {
+        const op = bc[ip++];
         const origPos = pos;
         switch (op) {
+          case OP_APP:
+            // TODO: Use LEB128 encoding to support >256 rules.
+            const ruleIdx = bc[ip++];
+            if (memoTable.has(pos, ruleIdx)) {
+              const { cst, nextPos } = memoTable.getResult(pos, ruleIdx);
+              result = cst;
+              pos = nextPos;
+            } else {
+              ruleStack.push([ruleIdx, ip]);
+              posStack.push(origPos);
+              ip = this.ruleOffsetByIndex.get(ruleIdx);
+            }
+            break;
           case OP_TERMINAL:
             // TODO: Cache the string to avoid reconstructing it every time?
-            const strLen = currRule[ip++];
-            const bytes = new Uint8Array(currRule.slice(ip, ip + strLen * 2));
+            const strLen = bc[ip++];
+            const bytes = new Uint8Array(bc.slice(ip, ip + strLen * 2));
             const codes = new Uint16Array(bytes.buffer);
             ip += strLen * 2;
             result = "";
@@ -128,8 +154,8 @@ class Matcher {
             }
             break;
           case OP_RANGE:
-            const startCp = currRule[ip++] | (currRule[ip++] << 8);
-            const endCp = currRule[ip++] | (currRule[ip++] << 8);
+            const startCp = bc[ip++] | (bc[ip++] << 8);
+            const endCp = bc[ip++] | (bc[ip++] << 8);
             const nextCp = pos < inputLen ? input.codePointAt(pos) : -1;
             if (startCp <= nextCp && nextCp <= endCp) {
               pos++;
@@ -138,21 +164,40 @@ class Matcher {
               result = null;
             }
             break;
-          case OP_APP:
-            // TODO: Use LEB128 encoding to support >256 rules.
-            const ruleIdx = currRule[ip++];
-            if (memoTable.has(pos, ruleIdx)) {
-              const { cst, nextPos } = memoTable.getResult(pos, ruleIdx);
-              result = cst;
-              pos = nextPos;
-            } else {
-              // ruleIdxs.push(ruleIdx);
-              ruleStack.push([ruleIdx, ip]);
-              posStack.push(origPos);
-              currRule = this.compiledRules[ruleIdx];
-              ip = 0;
-              //            logRuleEnter(ruleIdx);
-            }
+          case OP_JUMP_IF_FAILED: {
+            let disp =
+              bc[ip++] |
+              (bc[ip++] << 8) |
+              (bc[ip++] << 16) |
+              (bc[ip++] << 24);
+            if (result === null) ip += disp;
+            break;
+          }
+          case OP_JUMP_IF_SUCCEEDED: {
+            let disp =
+              bc[ip++] |
+              (bc[ip++] << 8) |
+              (bc[ip++] << 16) |
+              (bc[ip++] << 24);
+            if (result !== null) ip += disp;
+            break;
+          }
+          case OP_RETURN:
+            result = returnStack.pop();
+            break;
+          case OP_RETURN_COND:
+            const outerResult = returnStack.pop();
+            result = result !== null ? outerResult : null;
+            break;
+          case OP_NEW_RESULT_LIST:
+            returnStack.push([]);
+            break;
+          case OP_APPEND_RESULT:
+            // TODO: Can we avoid the cast here?
+            (returnStack.at(-1) as Result[]).push(result);
+            break;
+          case OP_SAVE_POS:
+            posStack.push(pos);
             break;
           case OP_RESTORE_POS:
             pos = checkNotNull(posStack.pop());
@@ -162,41 +207,6 @@ class Matcher {
             if (result === null) {
               pos = prevPos;
             }
-            break;
-          case OP_JUMP_IF_FAILED: {
-            let disp =
-              currRule[ip++] |
-              (currRule[ip++] << 8) |
-              (currRule[ip++] << 16) |
-              (currRule[ip++] << 24);
-            if (result === null) ip += disp;
-            break;
-          }
-          case OP_JUMP_IF_SUCCEEDED: {
-            let disp =
-              currRule[ip++] |
-              (currRule[ip++] << 8) |
-              (currRule[ip++] << 16) |
-              (currRule[ip++] << 24);
-            if (result !== null) ip += disp;
-            break;
-          }
-          case OP_NEW_RESULT_LIST:
-            returnStack.push([]);
-            break;
-          case OP_RETURN:
-            result = returnStack.pop();
-            break;
-          case OP_RETURN_COND:
-            const outerResult = returnStack.pop();
-            result = result !== null ? outerResult : null;
-            break;
-          case OP_SAVE_POS:
-            posStack.push(pos);
-            break;
-          case OP_APPEND_RESULT:
-            // TODO: Can we avoid the cast here?
-            (returnStack.at(-1) as Result[]).push(result);
             break;
           case OP_FAIL:
             result = null;
@@ -208,6 +218,8 @@ class Matcher {
             throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
         }
       } // end of rule body
+      if (ruleStack.length === 0) break;
+
       const memoPos = checkNotNull(posStack.pop());
       // ruleIdxs.pop();
       const [ruleIdx, savedIp] = ruleStack.pop();
@@ -218,14 +230,9 @@ class Matcher {
         nextPos: pos,
       });
 
-      if (ruleStack.length >= 1) {
-        const [outerRuleIdx] = ruleStack.at(-1);
-
-        // Restore control to the outer rule.
-        ip = savedIp;
-        currRule = this.compiledRules[outerRuleIdx];
-      }
-    } while (ruleStack.length >= 1);
+      // Restore control to the outer rule.
+      ip = savedIp;
+    }
     assert(posStack.length === 0, "too much on pos stack");
     assert(returnStack.length === 0, `too much on return stack ${returnStack}`);
 
