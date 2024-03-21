@@ -58,6 +58,7 @@ const OP_RESTORE_POS = 12;
 const OP_RESTORE_POS_COND = 13;
 const OP_FAIL = 14;
 const OP_NOT = 15;
+const OP_MEMOIZE = 16;
 
 // A jump fragment should take 5 bytes: a jump instruction plus an i32 offset.
 const jumpFragSize = sizeInBytes([OP_JUMP_IF_FAILED, ...i32(0)]);
@@ -85,7 +86,13 @@ class Matcher {
     for (const ruleName in rules) {
       const bytes = ensureSeq(rules[ruleName]).toBytecode(ruleIndexByName);
       const idx = checkNotNull(ruleIndexByName.get(ruleName));
-      compiledRules[idx] = new Uint8Array([...bytes.flat(Infinity), OP_END]);
+      assert(idx < 256);
+      compiledRules[idx] = new Uint8Array([
+        ...bytes.flat(Infinity),
+        OP_MEMOIZE,
+        idx,
+        OP_END,
+      ]);
     }
     this.ruleOffsetByIndex = new Map<number, number>();
 
@@ -214,21 +221,23 @@ class Matcher {
               returnStack.length === 0,
               `too much on return stack ${returnStack}`,
             );
-            console.log("here!");
             return pos >= inputLen ? result : null;
           }
-          const memoPos = checkNotNull(posStack.pop());
-          // ruleIdxs.pop();
-          const [memoIdx, savedIp] = ruleStack.pop();
-
-          // Memoize the result.
-          memoTable.memoizeResult(memoPos, memoIdx, {
-            cst: result,
-            nextPos: pos,
-          });
+          posStack.pop();
+          const [_, savedIp] = ruleStack.pop();
 
           // Restore control to the outer rule.
           ip = savedIp;
+          break;
+        case OP_MEMOIZE:
+          const memoIdx = bc[ip++];
+          if (posStack.length > 0) {
+            const memoPos = checkNotNull(posStack.at(-1));
+            memoTable.memoizeResult(memoPos, memoIdx, {
+              cst: result,
+              nextPos: pos,
+            });
+          }
           break;
         default:
           throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
