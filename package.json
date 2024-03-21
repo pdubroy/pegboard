@@ -5,9 +5,11 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "bench:bun": "bun scripts/bench.ts",
+    "bench:node": "node --import=tsx scripts/bench.ts",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
-    "test": "node --loader ts-node/esm node_modules/uvu/bin.js test -i data -i build"
+    "test": "node --import=tsx node_modules/uvu/bin.js test -i data -i build"
   },
   "repository": {
     "type": "git",
@@ -23,7 +25,7 @@
     "dexnode": "^1.2.2",
     "mitata": "^0.1.6",
     "prettier": "^3.0.2",
-    "ts-node": "^10.9.1",
+    "tsx": "^4.7.1",
     "typescript": "^5.2.2",
     "uvu": "^0.5.6",
     "watchlist": "^0.3.1"
