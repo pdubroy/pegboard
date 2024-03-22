@@ -1,21 +1,9 @@
+import { assert, checkNotNull } from "./assert.js";
 import { MemoTable } from "./MemoTable.js";
 import { Result } from "./types.js";
 
 export interface PExpr {
   toBytecode(ruleIndices: Map<string, number>): number[];
-}
-
-function assert(cond: boolean, msg = "") {
-  if (!cond) {
-    throw new Error(msg);
-  }
-}
-
-function checkNotNull<T>(x: T): NonNullable<T> {
-  if (x == null) {
-    throw new Error(`expected non-null: ${x}`);
-  }
-  return x as NonNullable<T>;
 }
 
 // Return an array containing four bytes encoding `val` in little-endian order.
@@ -85,7 +73,7 @@ class Matcher {
     const compiledRules: Uint8Array[] = [];
     for (const ruleName in rules) {
       const bytes = ensureSeq(rules[ruleName]).toBytecode(ruleIndexByName);
-      const idx = checkNotNull(ruleIndexByName.get(ruleName));
+      const idx = ruleIndexByName.get(ruleName);
       assert(idx < 256);
       compiledRules[idx] = new Uint8Array([
         ...bytes.flat(Infinity),
@@ -111,7 +99,7 @@ class Matcher {
     let pos = 0;
 
     const returnStack: Result[] = [];
-    const posStack: number[] = [];
+    const posStack = [0];
     const ruleStack: [number, number][] = [];
     const inputLen = input.length;
     let result: Result;
@@ -121,8 +109,6 @@ class Matcher {
 
     const startRuleIndex = checkNotNull(this.ruleIndexByName.get(startRule));
 
-    // ruleStack.push([startRuleIndex, 0]);
-    // posStack.push(pos);
     let ip = this.ruleOffsetByIndex.get(startRuleIndex);
 
     while (true) {
@@ -200,10 +186,10 @@ class Matcher {
           posStack.push(pos);
           break;
         case OP_RESTORE_POS:
-          pos = checkNotNull(posStack.pop());
+          pos = posStack.pop();
           break;
         case OP_RESTORE_POS_COND:
-          const prevPos = checkNotNull(posStack.pop());
+          const prevPos = posStack.pop();
           if (result === null) {
             pos = prevPos;
           }
@@ -216,7 +202,7 @@ class Matcher {
           break;
         case OP_END:
           if (ruleStack.length === 0) {
-            assert(posStack.length === 0, "too much on pos stack");
+            assert(posStack.length === 1, "too much on pos stack");
             assert(
               returnStack.length === 0,
               `too much on return stack ${returnStack}`,
@@ -231,13 +217,11 @@ class Matcher {
           break;
         case OP_MEMOIZE:
           const memoIdx = bc[ip++];
-          if (posStack.length > 0) {
-            const memoPos = checkNotNull(posStack.at(-1));
-            memoTable.memoizeResult(memoPos, memoIdx, {
-              cst: result,
-              nextPos: pos,
-            });
-          }
+          const memoPos = posStack.at(-1);
+          memoTable.memoizeResult(memoPos, memoIdx, {
+            cst: result,
+            nextPos: pos,
+          });
           break;
         default:
           throw new Error(`unhandled bytecode: ${op}, ip ${ip}`);
