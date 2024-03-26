@@ -1,13 +1,17 @@
-# pegboard
+# Pegboard
 
 PEG parsing in TypeScript, two ways:
 
 - an AST interpreter (src/tree-walk.ts)
 - a switch-based bytecode interpreter (src/switch-interp.ts)
 
-## Benchmarking
+## Tests
 
-`bun scripts/bench.ts` (for JSC) or `ts-node scripts/bench.ts` (V8)
+`npm test`
+
+## Benchmarks
+
+`npm run bench:bun` (for JSC) or `npm run bench:node` (V8)
 
 ## Debugging and profiling
 
